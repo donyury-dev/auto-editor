@@ -7,12 +7,17 @@ um grupo de palavras e a palavra ativa é destacada com cor + leve zoom.
 from __future__ import annotations
 
 import logging
+import string
 from dataclasses import dataclass
 from pathlib import Path
 
 from core.models import Transcript, TranscriptChunk, Word
 
 logger = logging.getLogger(__name__)
+
+# Pontuação removida das pontas das palavras quando strip_punctuation=True
+# (hífen/apóstrofo internos, ex. "bem-vindo", são preservados).
+_STRIP_CHARS = string.punctuation + "«»“”‘’…—–"
 
 
 @dataclass
@@ -30,6 +35,7 @@ class CaptionStyle:
     margin_v_horizontal: int = 150
     uppercase: bool = True
     active_scale: int = 110
+    strip_punctuation: bool = True
 
 
 def rgb_to_ass(hex_color: str) -> str:
@@ -105,6 +111,9 @@ class SubtitleEngine:
         parts: list[str] = []
         for i, word in enumerate(chunk.words):
             text = word.text.strip().replace("{", "").replace("}", "")
+            if style.strip_punctuation:
+                stripped = text.strip(_STRIP_CHARS)
+                text = stripped or text
             if style.uppercase:
                 text = text.upper()
             if i == active_idx:

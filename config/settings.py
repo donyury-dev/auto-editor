@@ -41,6 +41,9 @@ class Settings:
     max_words_per_chunk: int = 4
     max_chunk_duration: float = 2.5
     caption_style: str = "viral_amarelo"  # id de um preset em core/caption_styles.py
+    # Posição vertical da legenda: % da altura da tela, a partir da base.
+    # 25 = um quarto da altura acima do rodapé (típico CapCut).
+    caption_vertical_position: int = 25
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
@@ -62,6 +65,9 @@ class Settings:
             max_words_per_chunk=int(data.get("max_words_per_chunk", 4)),
             max_chunk_duration=float(data.get("max_chunk_duration", 2.5)),
             caption_style=str(data.get("caption_style", "viral_amarelo")),
+            caption_vertical_position=int(
+                data.get("caption_vertical_position", 25)
+            ),
         )
 
     def save(self, path: Path | None = None) -> None:

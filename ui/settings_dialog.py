@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
 )
 
@@ -58,11 +59,23 @@ class SettingsDialog(QDialog):
         if self.settings.whisper_model in WHISPER_MODELS:
             self.whisper_combo.setCurrentText(self.settings.whisper_model)
 
+        self.position_spin = QSpinBox()
+        self.position_spin.setRange(5, 90)
+        self.position_spin.setSuffix("%")
+        self.position_spin.setValue(self.settings.caption_vertical_position)
+        position_hint = QLabel(
+            "Altura da legenda a partir da base da tela "
+            "(maior = mais para cima)."
+        )
+        position_hint.setStyleSheet("color: gray; font-size: 11px;")
+
         form.addRow("Provedor de IA:", self.provider_combo)
         form.addRow("Modelo:", self.model_edit)
         form.addRow("API Key:", self.key_edit)
         form.addRow("", key_hint)
         form.addRow("Modelo Whisper:", self.whisper_combo)
+        form.addRow("Posição da legenda:", self.position_spin)
+        form.addRow("", position_hint)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -111,5 +124,6 @@ class SettingsDialog(QDialog):
             QMessageBox.critical(self, "Erro", f"Falha ao salvar:\n{exc}")
             return
         self.settings.whisper_model = self.whisper_combo.currentText()
+        self.settings.caption_vertical_position = self.position_spin.value()
         self.settings.save()
         self.accept()

@@ -6,6 +6,8 @@ def test_padroes():
     assert settings.output_format == OutputFormat.VERTICAL
     assert settings.whisper_model == "small"
     assert settings.max_words_per_chunk == 4
+    assert settings.caption_style == "viral_amarelo"
+    assert settings.caption_vertical_position == 25
 
 
 def test_roundtrip_salva_e_carrega(tmp_path):
@@ -15,6 +17,7 @@ def test_roundtrip_salva_e_carrega(tmp_path):
         max_words_per_chunk=5,
         max_chunk_duration=3.0,
         caption_style="impacto_vermelho",
+        caption_vertical_position=40,
     )
     path = tmp_path / "settings.json"
     settings.save(path)

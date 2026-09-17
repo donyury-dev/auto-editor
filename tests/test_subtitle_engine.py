@@ -78,3 +78,35 @@ def test_write_ass_nao_solapa_blocos(tmp_path):
     assert "PlayResY: 1080" in events[0].join("") or True
     header = out.read_text(encoding="utf-8")
     assert "PlayResX: 1920" in header
+
+
+def test_pontuacao_removida_por_padrao():
+    engine = SubtitleEngine(max_words=4, max_duration=10.0)
+    words = [Word("perfeito.", 0.0, 0.5), Word("isso,", 0.5, 1.0)]
+    chunks = engine.build_chunks(words)
+    line = engine._render_line(chunks[0], 0)
+    assert "PERFEITO" in line
+    assert "PERFEITO." not in line
+    assert "ISSO," not in line
+
+
+def test_pontuacao_preservada_quando_desativado():
+    from core.subtitle_engine import CaptionStyle
+
+    engine = SubtitleEngine(
+        style=CaptionStyle(strip_punctuation=False),
+        max_words=4,
+        max_duration=10.0,
+    )
+    words = [Word("perfeito.", 0.0, 0.5)]
+    chunks = engine.build_chunks(words)
+    line = engine._render_line(chunks[0], 0)
+    assert "PERFEITO." in line
+
+
+def test_hifen_interno_preservado():
+    engine = SubtitleEngine(max_words=4, max_duration=10.0)
+    words = [Word("bem-vindo,", 0.0, 0.5)]
+    chunks = engine.build_chunks(words)
+    line = engine._render_line(chunks[0], 0)
+    assert "BEM-VINDO" in line

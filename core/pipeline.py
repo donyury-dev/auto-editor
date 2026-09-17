@@ -10,7 +10,7 @@ import logging
 import shutil
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -80,8 +80,17 @@ class BuildSubtitlesStep(PipelineStep):
         target_w, target_h = resolve_target_resolution(
             ctx.settings.output_format, info
         )
+        # Posição vertical: % da altura a partir da base, configurável pelo
+        # usuário (sobrepõe as margens padrão do preset).
+        pct = max(1, min(95, ctx.settings.caption_vertical_position))
+        margin_v = int(target_h * pct / 100)
+        style = replace(
+            get_caption_style(ctx.settings.caption_style),
+            margin_v_vertical=margin_v,
+            margin_v_horizontal=margin_v,
+        )
         engine = SubtitleEngine(
-            style=get_caption_style(ctx.settings.caption_style),
+            style=style,
             max_words=ctx.settings.max_words_per_chunk,
             max_duration=ctx.settings.max_chunk_duration,
         )
