@@ -24,18 +24,25 @@ _STRIP_CHARS = string.punctuation + "«»“”‘’…—–"
 class CaptionStyle:
     """Estilo visual das legendas."""
 
-    font_name: str = "Arial Black"
-    font_size_vertical: int = 68
-    font_size_horizontal: int = 56
+    font_name: str = "Anton"
+    font_size_vertical: int = 74
+    font_size_horizontal: int = 58
     primary_color: str = "#FFFFFF"
     highlight_color: str = "#FFD400"
-    outline: int = 4
-    shadow: int = 1
+    outline: int = 5
+    shadow: int = 2
     margin_v_vertical: int = 420
     margin_v_horizontal: int = 150
     uppercase: bool = True
-    active_scale: int = 110
+    active_scale: int = 135
     strip_punctuation: bool = True
+    # Animação de "pop" da palavra ativa: cresce de 0 até o alvo passando
+    # por um pico (overshoot) e assenta — efeito bounce estilo CapCut.
+    pop_animation: bool = True
+    pop_overshoot: int = 10  # % acima do escala final no pico do bounce
+    pop_duration_ms: int = 140
+    # Glow suave na palavra ativa (0 = desligado; ~0.5-1.0 = sutil)
+    active_glow: float = 0.0
 
 
 def rgb_to_ass(hex_color: str) -> str:
@@ -117,13 +124,32 @@ class SubtitleEngine:
             if style.uppercase:
                 text = text.upper()
             if i == active_idx:
-                parts.append(
-                    f"{{\\c{highlight}&\\fscx{style.active_scale}"
-                    f"\\fscy{style.active_scale}}}{text}{{\\r}}"
-                )
+                parts.append(self._render_active(text, highlight))
             else:
                 parts.append(text)
         return " ".join(parts)
+
+    def _render_active(self, text: str, highlight: str) -> str:
+        """Marca a palavra ativa: cor de destaque + pop com bounce."""
+        style = self.style
+        scale = max(100, style.active_scale)
+        glow = (
+            f"\\blur{style.active_glow}" if style.active_glow > 0 else ""
+        )
+        if not style.pop_animation:
+            return (
+                f"{{\\c{highlight}&{glow}\\fscx{scale}"
+                f"\\fscy{scale}}}{text}{{\\r}}"
+            )
+        # Bounce: 0% -> pico (escala + overshoot) -> escala final.
+        peak = min(200, scale + style.pop_overshoot)
+        t1 = int(style.pop_duration_ms * 0.45)
+        t2 = style.pop_duration_ms
+        return (
+            f"{{\\c{highlight}&{glow}\\fscx0\\fscy0"
+            f"\\t(0,{t1},\\fscx{peak}\\fscy{peak})"
+            f"\\t({t1},{t2},\\fscx{scale}\\fscy{scale})}}{text}{{\\r}}"
+        )
 
     def write_ass(
         self,

@@ -110,3 +110,44 @@ def test_hifen_interno_preservado():
     chunks = engine.build_chunks(words)
     line = engine._render_line(chunks[0], 0)
     assert "BEM-VINDO" in line
+
+
+def test_pop_animation_com_bounce_na_palavra_ativa():
+    engine = SubtitleEngine(max_words=4, max_duration=10.0)
+    words = [Word("perfeito", 0.0, 0.5), Word("demais", 0.5, 1.0)]
+    chunks = engine.build_chunks(words)
+    line = engine._render_line(chunks[0], 0)
+    # cresce a partir de 0, passa pelo pico e assenta
+    assert "\\fscx0\\fscy0" in line
+    assert "\\t(0," in line
+    assert "\\fscx135" in line          # escala final
+    assert "\\fscx145" in line          # pico (135 + overshoot 10)
+    assert line.index("\\fscx145") < line.index("\\fscx135")  # pico antes do assento
+
+
+def test_pop_desativado_usa_zoom_estatico():
+    from core.subtitle_engine import CaptionStyle
+
+    engine = SubtitleEngine(
+        style=CaptionStyle(pop_animation=False, active_scale=120),
+        max_words=4,
+        max_duration=10.0,
+    )
+    words = [Word("perfeito", 0.0, 0.5)]
+    chunks = engine.build_chunks(words)
+    line = engine._render_line(chunks[0], 0)
+    assert "\\fscx120" in line
+    assert "\\t(" not in line
+    assert "\\fscx0" not in line
+
+
+def test_glow_opcional_na_palavra_ativa():
+    from core.subtitle_engine import CaptionStyle
+
+    engine = SubtitleEngine(
+        style=CaptionStyle(active_glow=0.8), max_words=4, max_duration=10.0
+    )
+    words = [Word("perfeito", 0.0, 0.5)]
+    chunks = engine.build_chunks(words)
+    line = engine._render_line(chunks[0], 0)
+    assert "\\blur0.8" in line
