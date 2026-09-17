@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 SILENCE_GAP_S = 0.7  # gaps >= isso viram sugestão de corte
 MAX_ZOOMS = 4
 MIN_WORD_S = 0.45  # palavra precisa durar isso pra virar zoom
-ZOOM_SPREAD_S = 4.0  # distância mínima entre zooms
-ZOOM_INTENSITY = 0.18  # 18% de zoom no pico
+ZOOM_SPREAD_S = 6.0  # distância mínima entre zooms (garante voltar a 100%)
+ZOOM_INTENSITY = 0.10  # 10% de zoom no pico (mais conservador)
 ZOOM_PAD_BEFORE_S = 0.15
 ZOOM_PAD_AFTER_S = 0.6
 
@@ -125,6 +125,6 @@ class HeuristicProvider(AIProvider):
         return {
             "cuts": cuts,
             "zooms": zooms,
-            "transition_type": "fade",
-            "transition_duration": 0.3,
+            "transition_type": "corte",  # talking head fica mais natural com corte seco
+            "transition_duration": 0.1,
         }

@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 
 ProgressFn = Callable[[float, str], None]
 
+# Centro vertical do crop durante zoom: em talking head/selfie, o rosto
+# costuma ficar na metade superior do frame. 0.5 = centro; 0.35 = um pouco
+# acima, mantendo rosto inteiro enquadrado durante o push-in.
+ZOOM_CENTER_Y = 0.38
+
 
 class VideoProcessingError(RuntimeError):
     """Erro durante execução do FFmpeg/ffprobe."""
@@ -340,7 +345,7 @@ class VideoProcessor:
             zoom_chain = (
                 f",scale=w='{target_w}*{f}':h='{target_h}*{f}'"
                 ":eval=frame:flags=lanczos"
-                f",crop={target_w}:{target_h}:(iw-ow)/2:(ih-oh)/2"
+                f",crop={target_w}:{target_h}:(iw-ow)/2:(ih-oh)*{ZOOM_CENTER_Y}"
             )
         else:
             zoom_chain = ""
@@ -412,13 +417,15 @@ class VideoProcessor:
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs]
 
         if plan.transition_type == "corte":
-            # corte seco: concat simples
-            vstreams = "".join(f"[{i}:v:0]" for i in range(n))
+            # corte seco: concat simples (esta build exige vídeo/áudio alternados)
             if has_audio:
-                astreams = "".join(f"[{i}:a:0]" for i in range(n))
-                fc = f"{vstreams}{astreams}concat=n={n}:v=1:a=1[v][a]"
+                streams = ""
+                for i in range(n):
+                    streams += f"[{i}:v:0][{i}:a:0]"
+                fc = f"{streams}concat=n={n}:v=1:a=1[v][a]"
                 maps = ["-map", "[v]", "-map", "[a]"]
             else:
+                vstreams = "".join(f"[{i}:v:0]" for i in range(n))
                 fc = f"{vstreams}concat=n={n}:v=1[v]"
                 maps = ["-map", "[v]"]
         else:

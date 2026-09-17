@@ -21,7 +21,7 @@ def test_plano_com_silencios_vira_cortes():
     assert len(raw["cuts"]) == 2  # silêncio final de 0.5s não vira corte
     assert raw["cuts"][0]["start"] == 1.0
     assert raw["cuts"][0]["end"] == 2.0
-    assert raw["transition_type"] in ("fade",)
+    assert raw["transition_type"] in ("corte", "fade")
 
 
 def test_plano_e_valido_apos_validate():
