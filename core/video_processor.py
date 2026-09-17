@@ -24,6 +24,7 @@ from config.settings import (
     OutputFormat,
 )
 from core.edit_plan import EditPlan
+from core.face_detection import detect_face_center
 
 logger = logging.getLogger(__name__)
 
@@ -297,24 +298,44 @@ class VideoProcessor:
         )
 
     @staticmethod
-    def _zoom_expression(
-        local_zooms: list[tuple[float, float, float]]
-    ) -> str:
-        """Expressão do fator de zoom em função de t (local ao segmento).
+    def _zoom_expressions(
+        local_zooms: list[tuple[float, float, float, float, float]]
+    ) -> tuple[str, str, str]:
+        """Expressões de zoom e centro do crop em função de t (local).
 
-        Cada zoom é um "push-in" suave: sobe de 1x até 1+intensity e volta
-        para 1x seguindo uma meia onda cosseno. Isso elimina qualquer sensação
-        de corte seco ou plato abrupto — o movimento é contínuo do início ao
-        fim do zoom, com easing natural.
+        Cada zoom: push-in suave (meia onda cosseno) + centro do crop
+        detectado no rosto naquele momento. Quando nenhum zoom está ativo,
+        o crop volta para o centro padrão (cx=0.5, cy=ZOOM_CENTER_Y).
         """
         factor = "1"
-        for ts, te, intensity in local_zooms:
+        cx_expr = "0.5"
+        cy_expr = f"{ZOOM_CENTER_Y:.3f}"
+        for ts, te, intensity, face_cx, face_cy in local_zooms:
             duration = max(0.001, te - ts)
             envelope = (
                 f"(0.5-0.5*cos(PI*clip((t-{ts:.3f})/{duration:.3f},0,1)))"
             )
             factor += f"*(1+{intensity:.3f}*{envelope})"
-        return factor
+            window = f"gte(t,{ts:.3f})*lte(t,{te:.3f})"
+            cx_expr += f"+({face_cx:.3f}-0.5)*{window}"
+            cy_expr += f"+({face_cy:.3f}-{ZOOM_CENTER_Y:.3f})*{window}"
+        return factor, cx_expr, cy_expr
+
+    def _extract_frame(
+        self, input_path: Path, timestamp: float, out_path: Path
+    ) -> bool:
+        """Extrai um único frame do vídeo no timestamp especificado."""
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", f"{timestamp:.3f}", "-i", str(input_path),
+            "-frames:v", "1", "-q:v", "2",
+            str(out_path),
+        ]
+        try:
+            self._run_ffmpeg(cmd, f"frame em {timestamp:.2f}s")
+            return out_path.exists() and out_path.stat().st_size > 0
+        except VideoProcessingError:
+            return False
 
     def _render_segment(
         self,
@@ -331,21 +352,56 @@ class VideoProcessor:
             fmt, info
         )
         base = self._base_canvas_filter(fmt, info)
-        local_zooms = [
-            (
-                max(z.start, seg_start) - seg_start,
-                min(z.end, seg_end) - seg_start,
-                z.intensity,
-            )
-            for z in zooms
-            if z.start < seg_end and z.end > seg_start
+
+        intersecting = [
+            z for z in zooms if z.start < seg_end and z.end > seg_start
         ]
+
+        local_zooms: list[tuple[float, float, float, float, float]] = []
+        if intersecting:
+            frame_dir = out_path.parent / "face_frames"
+            frame_dir.mkdir(parents=True, exist_ok=True)
+
+        for z in intersecting:
+            ts = max(z.start, seg_start) - seg_start
+            te = min(z.end, seg_end) - seg_start
+            # detecta rosto em até 3 frames do zoom (início, meio, fim)
+            source_ts_list = [
+                max(z.start, seg_start) + 0.05,
+                (max(z.start, seg_start) + min(z.end, seg_end)) / 2,
+                min(z.end, seg_end) - 0.05,
+            ]
+            detections: list[tuple[float, float]] = []
+            for idx, source_ts in enumerate(source_ts_list):
+                frame_path = frame_dir / f"face_{z.start:.3f}_{idx}.jpg"
+                if self._extract_frame(input_path, source_ts, frame_path):
+                    detected = detect_face_center(frame_path)
+                    if detected:
+                        detections.append(detected)
+            if detections:
+                face_cx = sum(d[0] for d in detections) / len(detections)
+                face_cy = sum(d[1] for d in detections) / len(detections)
+                logger.info(
+                    "Zoom em %.2f-%.2f: rosto em cx=%.3f cy=%.3f (%d detecções)",
+                    z.start, z.end, face_cx, face_cy, len(detections),
+                )
+            else:
+                face_cx, face_cy = 0.5, ZOOM_CENTER_Y
+            local_zooms.append((ts, te, z.intensity, face_cx, face_cy))
+
         if local_zooms:
-            f = self._zoom_expression(local_zooms)
+            f, cx_expr, cy_expr = self._zoom_expressions(local_zooms)
+            # Escapa vírgulas dentro das expressões para não quebrar o
+            # filter_complex do FFmpeg (que usa ',' como separador).
+            def _esc(expr: str) -> str:
+                return expr.replace(",", r"\,")
+            f = _esc(f)
+            cx_expr = _esc(cx_expr)
+            cy_expr = _esc(cy_expr)
             zoom_chain = (
                 f",scale=w='{target_w}*{f}':h='{target_h}*{f}'"
                 ":eval=frame:flags=lanczos"
-                f",crop={target_w}:{target_h}:(iw-ow)/2:(ih-oh)*{ZOOM_CENTER_Y}"
+                f",crop={target_w}:{target_h}:({cx_expr}*iw-ow/2):({cy_expr}*ih-oh/2)"
             )
         else:
             zoom_chain = ""

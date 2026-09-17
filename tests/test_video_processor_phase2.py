@@ -9,19 +9,26 @@ def info(w=1280, h=720):
 
 
 def test_zoom_expression_sem_zooms():
-    assert VideoProcessor._zoom_expression([]) == "1"
+    f, cx, cy = VideoProcessor._zoom_expressions([])
+    assert f == "1"
+    assert cx == "0.5"
+    assert cy == "0.380"
 
 
 def test_zoom_expression_com_um_zoom():
-    expr = VideoProcessor._zoom_expression([(1.0, 3.0, 0.15)])
-    assert "(1+0.150" in expr
-    assert "(0.5-0.5*cos(PI*clip((t-1.000)/2.000,0,1)))" in expr
+    f, cx, cy = VideoProcessor._zoom_expressions([(1.0, 3.0, 0.15, 0.5, 0.4)])
+    assert "(1+0.150" in f
+    assert "(0.5-0.5*cos(PI*clip((t-1.000)/2.000,0,1)))" in f
+    assert "gte(t,1.000)*lte(t,3.000)" in cx
 
 
 def test_zoom_expression_zooms_multiplicam():
-    expr = VideoProcessor._zoom_expression([(1.0, 2.0, 0.1), (5.0, 6.0, 0.2)])
-    assert expr.count("*") >= 2
-    assert "cos(PI" in expr
+    f, cx, cy = VideoProcessor._zoom_expressions([
+        (1.0, 2.0, 0.1, 0.5, 0.4),
+        (5.0, 6.0, 0.2, 0.6, 0.3),
+    ])
+    assert f.count("*") >= 2
+    assert "cos(PI" in f
 
 
 def test_base_canvas_vertical_com_horizontal():
