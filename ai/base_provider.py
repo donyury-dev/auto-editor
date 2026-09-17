@@ -54,3 +54,26 @@ class AIProvider(ABC):
     @abstractmethod
     def suggest_music_mood(self, transcript_text: str) -> MusicMood:
         """Sugere o clima/energia da música de fundo."""
+
+    @abstractmethod
+    def suggest_edit_plan(
+        self,
+        transcript_text: str,
+        segments: list[dict],
+        duration: float,
+        language: str = "pt",
+    ) -> dict:
+        """Sugere o plano de edição (cortes, zooms e transições).
+
+        `segments` traz palavras com timestamps precisos:
+        [{"start": 0.0, "end": 0.4, "text": "oi"}, ...]
+
+        Retorna um dict no mesmo esquema de EditPlan.to_dict():
+        {
+          "cuts": [{"start": s, "end": e, "reason": "..."}],
+          "zooms": [{"start": s, "end": e, "intensity": 0.15, "reason": "..."}],
+          "transition_type": "fade",
+          "transition_duration": 0.3
+        }
+        O chamador é responsável por validar/sanitizar o resultado.
+        """

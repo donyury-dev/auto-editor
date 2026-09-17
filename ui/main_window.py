@@ -1,7 +1,8 @@
 """Janela principal: upload, configuração rápida, execução e progresso.
 
-O processamento pesado (Whisper + FFmpeg) roda em uma QThread separada,
-mantendo a interface fluida e alimentando a barra de progresso.
+Fluxo da Fase 2: análise (transcrição + plano de edição em QThread) →
+tela de revisão (o usuário aprova/ajusta cada sugestão) → renderização
+final em QThread. Nada é renderizado sem revisão.
 """
 
 from __future__ import annotations
@@ -28,37 +29,67 @@ from PyQt6.QtWidgets import (
 
 from ai.provider_manager import ProviderManager
 from config.settings import OUTPUT_DIR, OutputFormat, Settings
-from core.pipeline import PipelineContext, build_default_pipeline
+from core.pipeline import (
+    PipelineContext,
+    build_analysis_pipeline,
+    build_render_pipeline,
+)
 
 logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
 
-class PipelineWorker(QThread):
-    """Executa o pipeline em thread separada e emite sinais de progresso."""
+class AnalysisWorker(QThread):
+    """Etapa 1: transcreve e gera o plano de edição (para revisão)."""
 
-    progress = pyqtSignal(float, str, str)  # (0-1, etapa, mensagem)
-    succeeded = pyqtSignal(str)  # caminho do vídeo exportado
-    failed = pyqtSignal(str)  # mensagem de erro
+    progress = pyqtSignal(float, str, str)
+    succeeded = pyqtSignal(object)  # PipelineContext com transcript + edit_plan
+    failed = pyqtSignal(str)
 
-    def __init__(self, input_path: Path, settings: Settings, parent=None):
+    def __init__(self, input_path: Path, settings: Settings, manager, parent=None):
         super().__init__(parent)
         self.input_path = input_path
         self.settings = settings
+        self.manager = manager
+        self.ctx: PipelineContext | None = None
 
     def run(self) -> None:
         try:
             ctx = PipelineContext(
                 input_path=self.input_path, settings=self.settings
             )
-            build_default_pipeline().run(
+            self.ctx = ctx
+            build_analysis_pipeline(self.manager).run(
                 ctx,
                 lambda overall, step, msg: self.progress.emit(overall, step, msg),
             )
-            self.succeeded.emit(str(ctx.output_path))
+            self.succeeded.emit(ctx)
         except Exception as exc:
-            logger.exception("Pipeline falhou")
+            logger.exception("Análise falhou")
+            self.failed.emit(str(exc))
+
+
+class RenderWorker(QThread):
+    """Etapa 2: aplica o plano APROVADO e renderiza o vídeo final."""
+
+    progress = pyqtSignal(float, str, str)
+    succeeded = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, ctx: PipelineContext, parent=None):
+        super().__init__(parent)
+        self.ctx = ctx
+
+    def run(self) -> None:
+        try:
+            build_render_pipeline().run(
+                self.ctx,
+                lambda overall, step, msg: self.progress.emit(overall, step, msg),
+            )
+            self.succeeded.emit(str(self.ctx.output_path))
+        except Exception as exc:
+            logger.exception("Renderização falhou")
             self.failed.emit(str(exc))
 
 
@@ -69,7 +100,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(720, 560)
         self.settings = Settings.load()
         self.manager = ProviderManager()
-        self.worker: PipelineWorker | None = None
+        self.worker: QThread | None = None
         self._last_step: str | None = None
         self._build_ui()
         self._build_menu()
@@ -83,10 +114,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
 
-        title = QLabel("Auto Editor — MVP (Fase 1)")
+        title = QLabel("Auto Editor — Fase 2 (cortes, zoom e transições)")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         subtitle = QLabel(
-            "Vídeo → transcrição automática → legendas virais → exportação"
+            "Vídeo → transcrição → sugestões da IA → sua revisão → renderização"
         )
         subtitle.setStyleSheet("color: #666;")
         root.addWidget(title)
@@ -119,7 +150,7 @@ class MainWindow(QMainWindow):
         format_row.addWidget(self.format_combo, 1)
         root.addLayout(format_row)
 
-        self.run_btn = QPushButton("Editar vídeo automaticamente")
+        self.run_btn = QPushButton("Analisar e sugerir edição")
         self.run_btn.setStyleSheet("font-size: 15px; padding: 10px;")
         self.run_btn.clicked.connect(self._run)
         root.addWidget(self.run_btn)
@@ -199,17 +230,43 @@ class MainWindow(QMainWindow):
         self.log_box.clear()
         self._last_step = None
         self.open_btn.setVisible(False)
-        self.status_label.setText("Iniciando…")
+        self.status_label.setText("Iniciando análise…")
 
-        self.worker = PipelineWorker(path, self.settings)
+        self.worker = AnalysisWorker(path, self.settings, self.manager)
         self.worker.progress.connect(self._on_progress)
-        self.worker.succeeded.connect(self._on_success)
+        self.worker.succeeded.connect(self._on_analysis_done)
         self.worker.failed.connect(self._on_failure)
         self.worker.start()
 
     # ------------------------------------------------------------------
-    # Callbacks do worker
+    # Callbacks dos workers
     # ------------------------------------------------------------------
+
+    def _on_analysis_done(self, ctx: PipelineContext) -> None:
+        """Análise concluída: abre a tela de revisão (obrigatória)."""
+        assert ctx.edit_plan is not None
+        from ui.review_dialog import ReviewDialog
+
+        self.log_box.appendPlainText(
+            f"> Plano: {len(ctx.edit_plan.cuts)} corte(s), "
+            f"{len(ctx.edit_plan.zooms)} zoom(s) — aguardando sua revisão"
+        )
+        dialog = ReviewDialog(ctx.edit_plan, self)
+        if dialog.exec() != ReviewDialog.DialogCode.Accepted:
+            self.run_btn.setEnabled(True)
+            self.status_label.setText("Revisão cancelada — nada foi renderizado.")
+            return
+
+        ctx.edit_plan = dialog.approved_plan()
+        self.status_label.setText("Renderizando vídeo final…")
+        self.progress_bar.setValue(0)
+        self._last_step = None
+
+        self.worker = RenderWorker(ctx)
+        self.worker.progress.connect(self._on_progress)
+        self.worker.succeeded.connect(self._on_success)
+        self.worker.failed.connect(self._on_failure)
+        self.worker.start()
 
     def _on_progress(self, overall: float, step: str, msg: str) -> None:
         self.progress_bar.setValue(int(overall * 100))

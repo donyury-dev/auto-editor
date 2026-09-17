@@ -4,8 +4,9 @@ Programa de edição automática no estilo CapCut, focado em automação máxima
 o usuário sobe um vídeo e recebe de volta um vídeo pronto, editado no estilo
 "viral/reels", com legendas palavra por palavra queimadas na tela.
 
-**Fase atual: 1 (MVP)** — upload → transcrição (Whisper local) → legenda
-estilo viral → exportação (vertical, horizontal ou original).
+**Fase atual: 2** — upload → transcrição (Whisper local) → sugestões de cortes,
+zooms e transições → revisão manual obrigatória → renderização → legenda viral
+e exportação (vertical, horizontal ou original).
 
 ## Requisitos
 
@@ -53,9 +54,10 @@ main.py                 # Ponto de entrada (UI)
 config/settings.py      # Configurações + formato de saída (parâmetro central)
 core/
   pipeline.py           # ORQUESTRADOR: transcrever -> legendas -> render -> export
+  edit_plan.py          # Plano F2: cortes, zooms, transições e remapeamento de tempo
   transcriber.py        # Motor de transcrição (faster-whisper, GPU auto-detecção)
   subtitle_engine.py    # Motor de legendas (ASS palavra a palavra, estilo viral)
-  video_processor.py    # Motor de vídeo (FFmpeg: queima legendas, vertical/horizontal)
+  video_processor.py    # Motor de vídeo (FFmpeg: cortes, zoom, xfade e legendas)
   exporter.py           # Exportação final para output/
 ai/
   base_provider.py      # CONTRATO: interface AIProvider (analyze_transcript, etc.)
@@ -63,6 +65,7 @@ ai/
   provider_manager.py   # Troca de provedor dinâmica + API keys seguras (keyring)
 ui/
   main_window.py        # Janela principal (pipeline em QThread + progresso)
+  review_dialog.py      # Revisão/aprovação manual do plano antes do render
   settings_dialog.py    # Tela de configurações de provedores
 tests/                  # Testes unitários (pytest)
 logs/                   # Logs de execução (autoeditor.log)
@@ -84,7 +87,7 @@ Nada mais precisa mudar — motores e UI continuam intactos.
 
 O pipeline roda em uma `QThread` (`ui/main_window.py`), mantendo a
 interface fluida e reportando progresso agregado por etapa (pesos:
-transcrição 50%, legendas 5%, renderização 40%, exportação 5%).
+análise/transcrição 45%, revisão 10%, renderização 40%, exportação 5%).
 
 ## Testes
 
@@ -94,7 +97,7 @@ python -m pytest tests/ -q
 
 ## Roadmap
 
-- **Fase 2**: cortes automáticos + zoom automático + transições
+- **Fase 2**: cortes automáticos + zoom automático + transições (em validação)
 - **Fase 3**: efeitos sonoros + música de fundo com ducking
 - **Fase 4**: inserção automática de imagens durante a fala
 - **Fase 5**: múltiplos provedores de IA na tela de configuração
@@ -104,8 +107,13 @@ python -m pytest tests/ -q
 
 - A Claude (IA de linguagem) não faz transcrição nem processa vídeo: ela
   atua sobre o texto já transcrito pelo Whisper. Na Fase 1 o pipeline é
-  determinístico; a camada de IA será consumida a partir da Fase 2
-  (cortes, destaques, call-outs, clima da música).
+  determinístico; na Fase 2 ela pode sugerir cortes, destaques e zooms,
+  sempre passando pela tela de revisão antes do render.
+- As transições `xfade` encurtam a timeline em sua duração de sobreposição;
+  o plano remapeia as legendas para compensar esse encurtamento.
+- Na Fase 3, normalize o volume da voz original antes de aplicar ducking:
+  o vídeo de teste apresentou média aproximada de `-34 dB`, baixa para competir
+  diretamente com uma música de fundo.
 - `temp/`, `output/`, `logs/`, `.env` e `config/providers.json` estão no
   `.gitignore` — nada de segredo ou artefato vai para o Git.
 - Para fontes customizadas nas legendas, coloque arquivos `.ttf`/`.otf` em

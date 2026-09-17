@@ -27,6 +27,10 @@ class FakeProvider(AIProvider):
     def suggest_music_mood(self, transcript_text):
         return MusicMood()
 
+    def suggest_edit_plan(self, transcript_text, segments, duration, language="pt"):
+        return {"cuts": [], "zooms": [], "transition_type": "fade",
+                "transition_duration": 0.3}
+
 
 def make_manager(tmp_path) -> ProviderManager:
     manager = ProviderManager(

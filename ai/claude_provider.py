@@ -162,3 +162,47 @@ class ClaudeProvider(AIProvider):
             keywords=[str(k) for k in data.get("keywords", [])],
             suggested_bpm=int(data.get("suggested_bpm", 120)),
         )
+
+    def suggest_edit_plan(
+        self,
+        transcript_text: str,
+        segments: list[dict],
+        duration: float,
+        language: str = "pt",
+    ) -> dict:
+        seg_lines = [
+            f"[{float(s.get('start', 0)):.2f}-{float(s.get('end', 0)):.2f}] "
+            f"{s.get('text', '')}"
+            for s in segments
+        ]
+        prompt = (
+            "Você é editor de vídeos virais. Analise a transcrição palavra a "
+            "palavra (timestamps em segundos) e monte um plano de edição.\n\n"
+            "Regras:\n"
+            "1. cuts: intervalos para REMOVER — silêncios, pausas longas, "
+            "repetições e trechos sem valor. Use os timestamps exatos dos "
+            f"gaps (duração do vídeo: {duration:.1f}s). No máximo 12 cortes.\n"
+            "2. zooms: momentos de ÊNFASE para zoom punch-in (start/end em "
+            "segundos, intensity entre 0.1 e 0.25). No máximo 4.\n"
+            "3. transition_type: um de [corte, fade, slideleft, slideup, "
+            "circleopen, dissolve, pixelize, wipeleft] nos pontos de corte.\n"
+            "4. transition_duration: entre 0.2 e 0.5.\n\n"
+            "Retorne EXATAMENTE este JSON (sem texto extra):\n"
+            '{"cuts": [{"start": 0.0, "end": 0.0, "reason": "..."}], '
+            '"zooms": [{"start": 0.0, "end": 0.0, "intensity": 0.15, '
+            '"reason": "..."}], "transition_type": "fade", '
+            '"transition_duration": 0.3}\n\n'
+            "Palavras (start-end texto):\n" + "\n".join(seg_lines) + "\n\n"
+            f"Texto completo:\n{transcript_text}"
+        )
+        data = self._json(prompt)
+        if not isinstance(data, dict):
+            raise ValueError("Resposta inesperada do Claude (esperado objeto).")
+        return {
+            "cuts": data.get("cuts", []),
+            "zooms": data.get("zooms", []),
+            "transition_type": str(data.get("transition_type", "fade")),
+            "transition_duration": float(
+                data.get("transition_duration", 0.3)
+            ),
+        }
