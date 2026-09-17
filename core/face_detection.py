@@ -56,7 +56,7 @@ def _detect_yunet(image: np.ndarray) -> Optional[tuple[float, float]]:
         0.3,  # nms
         5000,  # top_k
     )
-    faces, _ = detector.detect(image)
+    _, faces = detector.detect(image)
     if faces is None or len(faces) == 0:
         return None
 

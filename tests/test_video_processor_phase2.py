@@ -12,7 +12,7 @@ def test_zoom_expression_sem_zooms():
     f, cx, cy = VideoProcessor._zoom_expressions([])
     assert f == "1"
     assert cx == "0.5"
-    assert cy == "0.380"
+    assert cy == "0.5"
 
 
 def test_zoom_expression_com_um_zoom():

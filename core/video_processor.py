@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 
 ProgressFn = Callable[[float, str], None]
 
-# Centro vertical do crop durante zoom: em talking head/selfie, o rosto
-# costuma ficar na metade superior do frame. 0.5 = centro; 0.35 = um pouco
-# acima, mantendo rosto inteiro enquadrado durante o push-in.
-ZOOM_CENTER_Y = 0.38
+# Centro padrão do crop quando nenhum rosto é detectado. Usamos o centro
+# real do frame (0.5, 0.5): valores mais altos/baixos geram coordenadas de
+# crop negativas que o FFmpeg clampa, anulando o efeito do centro.
+FACE_FALLBACK_CX = 0.5
+FACE_FALLBACK_CY = 0.5
 
 
 class VideoProcessingError(RuntimeError):
@@ -305,11 +306,11 @@ class VideoProcessor:
 
         Cada zoom: push-in suave (meia onda cosseno) + centro do crop
         detectado no rosto naquele momento. Quando nenhum zoom está ativo,
-        o crop volta para o centro padrão (cx=0.5, cy=ZOOM_CENTER_Y).
+        o crop volta para o centro padrão (0.5, 0.5).
         """
         factor = "1"
         cx_expr = "0.5"
-        cy_expr = f"{ZOOM_CENTER_Y:.3f}"
+        cy_expr = "0.5"
         for ts, te, intensity, face_cx, face_cy in local_zooms:
             duration = max(0.001, te - ts)
             envelope = (
@@ -318,7 +319,7 @@ class VideoProcessor:
             factor += f"*(1+{intensity:.3f}*{envelope})"
             window = f"gte(t,{ts:.3f})*lte(t,{te:.3f})"
             cx_expr += f"+({face_cx:.3f}-0.5)*{window}"
-            cy_expr += f"+({face_cy:.3f}-{ZOOM_CENTER_Y:.3f})*{window}"
+            cy_expr += f"+({face_cy:.3f}-0.5)*{window}"
         return factor, cx_expr, cy_expr
 
     def _extract_frame(
@@ -386,22 +387,27 @@ class VideoProcessor:
                     z.start, z.end, face_cx, face_cy, len(detections),
                 )
             else:
-                face_cx, face_cy = 0.5, ZOOM_CENTER_Y
+                face_cx, face_cy = FACE_FALLBACK_CX, FACE_FALLBACK_CY
+                logger.warning(
+                    "Zoom em %.2f-%.2f: nenhum rosto detectado; "
+                    "usando centro padrão (%.2f, %.2f)",
+                    z.start, z.end, face_cx, face_cy,
+                )
             local_zooms.append((ts, te, z.intensity, face_cx, face_cy))
 
         if local_zooms:
             f, cx_expr, cy_expr = self._zoom_expressions(local_zooms)
-            # Escapa vírgulas dentro das expressões para não quebrar o
-            # filter_complex do FFmpeg (que usa ',' como separador).
-            def _esc(expr: str) -> str:
-                return expr.replace(",", r"\,")
-            f = _esc(f)
-            cx_expr = _esc(cx_expr)
-            cy_expr = _esc(cy_expr)
+            # Expressões com vírgulas precisam ficar entre aspas simples no
+            # filter_complex; escape '\,' fora de aspas NÃO funciona nesta
+            # build do FFmpeg (gte/lte avaliam para 0 constante). Os
+            # parênteses em volta da expressão do centro são obrigatórios:
+            # sem eles, o gate multiplica iw/ih e gera coordenadas sempre
+            # negativas, que o FFmpeg clampa para 0 (centro nunca muda).
             zoom_chain = (
                 f",scale=w='{target_w}*{f}':h='{target_h}*{f}'"
                 ":eval=frame:flags=lanczos"
-                f",crop={target_w}:{target_h}:({cx_expr}*iw-ow/2):({cy_expr}*ih-oh/2)"
+                f",crop={target_w}:{target_h}"
+                f":'({cx_expr})*iw-ow/2':'({cy_expr})*ih-oh/2'"
             )
         else:
             zoom_chain = ""
