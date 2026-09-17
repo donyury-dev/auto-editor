@@ -23,7 +23,7 @@ from config.settings import (
     VERTICAL_RESOLUTION,
     OutputFormat,
 )
-from core.edit_plan import EditPlan, ZOOM_RAMP_S
+from core.edit_plan import EditPlan
 
 logger = logging.getLogger(__name__)
 
@@ -297,17 +297,18 @@ class VideoProcessor:
     ) -> str:
         """Expressão do fator de zoom em função de t (local ao segmento).
 
-        Cada zoom: rampa de entrada (RAMP_S), espera e rampa de saída.
-        O fator total é o produto dos zooms (não devem sobrepor).
+        Cada zoom é um "push-in" suave: sobe de 1x até 1+intensity e volta
+        para 1x seguindo uma meia onda cosseno. Isso elimina qualquer sensação
+        de corte seco ou plato abrupto — o movimento é contínuo do início ao
+        fim do zoom, com easing natural.
         """
         factor = "1"
         for ts, te, intensity in local_zooms:
-            ramp = ZOOM_RAMP_S
-            factor += (
-                f"*(1+{intensity:.3f}"
-                f"*clip((t-{ts:.3f})/{ramp},0,1)"
-                f"*clip(({te:.3f}+{ramp}-t)/{ramp},0,1))"
+            duration = max(0.001, te - ts)
+            envelope = (
+                f"(0.5-0.5*cos(PI*clip((t-{ts:.3f})/{duration:.3f},0,1)))"
             )
+            factor += f"*(1+{intensity:.3f}*{envelope})"
         return factor
 
     def _render_segment(

@@ -14,7 +14,7 @@ import logging
 
 from ai.base_provider import AIProvider
 from ai.models import Callout, Highlight, MusicMood, TranscriptAnalysis
-from core.edit_plan import MIN_CUT_S
+from core.edit_plan import MIN_CUT_S, ZOOM_MIN_DURATION_S
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,9 @@ SILENCE_GAP_S = 0.7  # gaps >= isso viram sugestão de corte
 MAX_ZOOMS = 4
 MIN_WORD_S = 0.45  # palavra precisa durar isso pra virar zoom
 ZOOM_SPREAD_S = 4.0  # distância mínima entre zooms
+ZOOM_INTENSITY = 0.18  # 18% de zoom no pico
+ZOOM_PAD_BEFORE_S = 0.15
+ZOOM_PAD_AFTER_S = 0.6
 
 
 class HeuristicProvider(AIProvider):
@@ -99,14 +102,20 @@ class HeuristicProvider(AIProvider):
         for w in candidates:
             if len(zooms) >= MAX_ZOOMS:
                 break
-            start = float(w["start"])
+            start = max(0.0, float(w["start"]) - ZOOM_PAD_BEFORE_S)
+            end = min(duration, float(w["end"]) + ZOOM_PAD_AFTER_S)
+            # garante duração mínima para o movimento ser perceptível
+            if end - start < ZOOM_MIN_DURATION_S:
+                center = (start + end) / 2
+                start = max(0.0, center - ZOOM_MIN_DURATION_S / 2)
+                end = min(duration, center + ZOOM_MIN_DURATION_S / 2)
             if any(abs(z["start"] - start) < ZOOM_SPREAD_S for z in zooms):
                 continue
             zooms.append(
                 {
-                    "start": max(0.0, start - 0.15),
-                    "end": min(duration, float(w["end"]) + 0.6),
-                    "intensity": 0.18,
+                    "start": start,
+                    "end": end,
+                    "intensity": ZOOM_INTENSITY,
                     "reason": (
                         f"ênfase em “{w['text'].strip('.,!?;:')}”"
                     ),

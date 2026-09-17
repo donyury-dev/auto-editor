@@ -15,13 +15,13 @@ def test_zoom_expression_sem_zooms():
 def test_zoom_expression_com_um_zoom():
     expr = VideoProcessor._zoom_expression([(1.0, 3.0, 0.15)])
     assert "(1+0.150" in expr
-    assert "clip((t-1.000)/0.4,0,1)" in expr
-    assert "clip((3.000+0.4-t)/0.4,0,1)" in expr
+    assert "(0.5-0.5*cos(PI*clip((t-1.000)/2.000,0,1)))" in expr
 
 
-def test_zoom_expression_zooms_multiplos_multiplicam():
+def test_zoom_expression_zooms_multiplicam():
     expr = VideoProcessor._zoom_expression([(1.0, 2.0, 0.1), (5.0, 6.0, 0.2)])
     assert expr.count("*") >= 2
+    assert "cos(PI" in expr
 
 
 def test_base_canvas_vertical_com_horizontal():

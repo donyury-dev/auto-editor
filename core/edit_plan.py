@@ -25,7 +25,8 @@ TRANSITION_TYPES = [
     "wipeleft",
 ]
 
-ZOOM_RAMP_S = 0.4  # duração da rampa de entrada do zoom (suavização)
+ZOOM_RAMP_S = 0.4  # duração da rampa de entrada/saída do zoom (suavização)
+ZOOM_MIN_DURATION_S = 1.0  # duração mínima de um zoom para ser perceptível
 MIN_CUT_S = 0.15  # cortes menores que isso são descartados
 MAX_PLAN_ITEMS = 60  # teto de segurança para saídas de LLM
 
