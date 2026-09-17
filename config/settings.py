@@ -40,6 +40,7 @@ class Settings:
     whisper_model: str = "small"
     max_words_per_chunk: int = 4
     max_chunk_duration: float = 2.5
+    caption_style: str = "viral_amarelo"  # id de um preset em core/caption_styles.py
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
@@ -60,6 +61,7 @@ class Settings:
             whisper_model=str(data.get("whisper_model", "small")),
             max_words_per_chunk=int(data.get("max_words_per_chunk", 4)),
             max_chunk_duration=float(data.get("max_chunk_duration", 2.5)),
+            caption_style=str(data.get("caption_style", "viral_amarelo")),
         )
 
     def save(self, path: Path | None = None) -> None:

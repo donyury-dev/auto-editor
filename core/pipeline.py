@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from config.settings import TEMP_DIR, OutputFormat, Settings
+from core.caption_styles import get_caption_style
 from core.exporter import Exporter
 from core.models import Transcript
 from core.subtitle_engine import SubtitleEngine
@@ -79,6 +81,7 @@ class BuildSubtitlesStep(PipelineStep):
             ctx.settings.output_format, info
         )
         engine = SubtitleEngine(
+            style=get_caption_style(ctx.settings.caption_style),
             max_words=ctx.settings.max_words_per_chunk,
             max_duration=ctx.settings.max_chunk_duration,
         )
@@ -129,6 +132,9 @@ class Pipeline:
         ctx: PipelineContext,
         progress: Optional[PipelineProgressFn] = None,
     ) -> PipelineContext:
+        # Limpa sessões antigas (de falhas passadas ou do app ser fechado
+        # no meio), evitando que temp/ cresça indefinidamente.
+        cleanup_stale_sessions()
         ctx.work_dir.mkdir(parents=True, exist_ok=True)
         done = 0.0
         step: PipelineStep = self.steps[0]
@@ -164,6 +170,33 @@ class Pipeline:
             shutil.rmtree(ctx.work_dir, ignore_errors=True)
             logger.info("Pipeline concluído com sucesso.")
         return ctx
+
+
+def cleanup_stale_sessions(
+    max_age_hours: float = 24.0, base_dir: Optional[Path] = None
+) -> int:
+    """Remove sessões de temp/ mais antigas que `max_age_hours`.
+
+    A sessão da execução atual é apagada ao final do pipeline com sucesso
+    (shutil.rmtree no Pipeline.run); este limpeza cobre os casos de falha
+    (diretório mantido para debug) e de encerramento forçado do app.
+    Retorna quantas sessões foram removidas.
+    """
+    base_dir = Path(base_dir or TEMP_DIR)
+    if not base_dir.exists():
+        return 0
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for entry in base_dir.iterdir():
+        try:
+            if entry.is_dir() and entry.stat().st_mtime < cutoff:
+                shutil.rmtree(entry, ignore_errors=True)
+                removed += 1
+        except OSError as exc:
+            logger.debug("Não foi possível limpar %s: %s", entry, exc)
+    if removed:
+        logger.info("Limpeza de temp/: %d sessão(ões) antiga(s) removida(s).", removed)
+    return removed
 
 
 def build_default_pipeline() -> Pipeline:

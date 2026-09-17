@@ -1,9 +1,16 @@
 from pathlib import Path
+import os
+import time
 
 import pytest
 
 from config.settings import Settings
-from core.pipeline import Pipeline, PipelineContext, PipelineStep
+from core.pipeline import (
+    Pipeline,
+    PipelineContext,
+    PipelineStep,
+    cleanup_stale_sessions,
+)
 
 
 class FakeStep(PipelineStep):
@@ -74,3 +81,23 @@ def test_contexto_carrega_dados_entre_etapas(tmp_path):
 
     pipeline = Pipeline([WriteStep(), ReadStep()])
     pipeline.run(make_ctx(tmp_path))
+
+
+def test_cleanup_stale_sessions_remove_apenas_antigas(tmp_path):
+    old_session = tmp_path / "20200101_000000"
+    fresh_session = tmp_path / "29991231_235959"
+    old_session.mkdir()
+    fresh_session.mkdir()
+    # marca a sessão "antiga" com mtime de 48h atrás
+    stale_time = time.time() - 48 * 3600
+    os.utime(old_session, (stale_time, stale_time))
+
+    removed = cleanup_stale_sessions(max_age_hours=24.0, base_dir=tmp_path)
+
+    assert removed == 1
+    assert not old_session.exists()
+    assert fresh_session.exists()
+
+
+def test_cleanup_com_diretorio_inexistente_nao_erro(tmp_path):
+    assert cleanup_stale_sessions(base_dir=tmp_path / "nao_existe") == 0

@@ -14,6 +14,7 @@ def test_roundtrip_salva_e_carrega(tmp_path):
         whisper_model="base",
         max_words_per_chunk=5,
         max_chunk_duration=3.0,
+        caption_style="impacto_vermelho",
     )
     path = tmp_path / "settings.json"
     settings.save(path)

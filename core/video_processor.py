@@ -110,6 +110,49 @@ class VideoProcessor:
             arg += f":fontsdir='{FONTS_DIR.as_posix()}'"
         return arg
 
+    def _build_filter_args(
+        self, fmt: OutputFormat, info: VideoInfo, ass_arg: str
+    ) -> list[str]:
+        """Monta os argumentos de filtro e mapeamento de streams do ffmpeg.
+
+        Importante: o vídeo é sempre mapeado explicitamente. Com qualquer
+        `-map` presente, o ffmpeg desativa a seleção automática de streams —
+        sem o mapa explícito, a saída sairia sem faixa de vídeo.
+        """
+        if fmt == OutputFormat.ORIGINAL:
+            # Apenas normaliza dimensões pares e queima as legendas.
+            return [
+                "-vf",
+                f"scale=trunc(iw/2)*2:trunc(ih/2)*2,{ass_arg}",
+                "-map",
+                "0:v:0",
+            ]
+
+        target_w, target_h = resolve_target_resolution(fmt, info)
+        src_aspect = info.aspect_ratio
+        target_aspect = target_w / target_h
+        mismatch = abs(src_aspect - target_aspect) / target_aspect > 0.05
+        if mismatch:
+            # Fundo desfocado + vídeo centralizado (estilo Reels).
+            filter_complex = (
+                "[0:v]split=2[bg][fg];"
+                f"[bg]scale={target_w}:{target_h}"
+                ":force_original_aspect_ratio=increase,"
+                f"crop={target_w}:{target_h},boxblur=20:2[bgb];"
+                f"[fg]scale={target_w}:{target_h}"
+                ":force_original_aspect_ratio=decrease[fgs];"
+                f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,{ass_arg}[v]"
+            )
+            return ["-filter_complex", filter_complex, "-map", "[v]"]
+        return [
+            "-vf",
+            f"scale={target_w}:{target_h}"
+            f":force_original_aspect_ratio=increase,"
+            f"crop={target_w}:{target_h},{ass_arg}",
+            "-map",
+            "0:v:0",
+        ]
+
     def render(
         self,
         input_path: Path | str,
@@ -126,38 +169,7 @@ class VideoProcessor:
         info = self.probe(input_path)
         target_w, target_h = resolve_target_resolution(fmt, info)
         ass_arg = self._ass_filter_arg(ass_path)
-
-        if fmt == OutputFormat.ORIGINAL:
-            # Apenas normaliza dimensões pares e queima as legendas.
-            filter_args = [
-                "-vf",
-                f"scale=trunc(iw/2)*2:trunc(ih/2)*2,{ass_arg}",
-            ]
-        else:
-            src_aspect = info.aspect_ratio
-            target_aspect = target_w / target_h
-            mismatch = (
-                abs(src_aspect - target_aspect) / target_aspect > 0.05
-            )
-            if mismatch:
-                # Fundo desfocado + vídeo centralizado (estilo Reels).
-                filter_complex = (
-                    "[0:v]split=2[bg][fg];"
-                    f"[bg]scale={target_w}:{target_h}"
-                    ":force_original_aspect_ratio=increase,"
-                    f"crop={target_w}:{target_h},boxblur=20:2[bgb];"
-                    f"[fg]scale={target_w}:{target_h}"
-                    ":force_original_aspect_ratio=decrease[fgs];"
-                    f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,{ass_arg}[v]"
-                )
-                filter_args = ["-filter_complex", filter_complex, "-map", "[v]"]
-            else:
-                filter_args = [
-                    "-vf",
-                    f"scale={target_w}:{target_h}"
-                    f":force_original_aspect_ratio=increase,"
-                    f"crop={target_w}:{target_h},{ass_arg}",
-                ]
+        filter_args = self._build_filter_args(fmt, info, ass_arg)
 
         cmd = [
             "ffmpeg",
@@ -224,6 +236,17 @@ class VideoProcessor:
                 raise VideoProcessingError(
                     f"FFmpeg falhou (código {returncode}): {err.strip()[-800:]}"
                 )
+
+        # Validação defensiva: o resultado precisa ter faixa de vídeo com as
+        # dimensões esperadas (evita export silencioso sem vídeo).
+        expected = (target_w - target_w % 2, target_h - target_h % 2)
+        out_info = self.probe(output_path)
+        if (out_info.width, out_info.height) != expected:
+            raise VideoProcessingError(
+                f"Saída inválida: esperado {expected[0]}x{expected[1]}, "
+                f"obtido {out_info.width}x{out_info.height} "
+                "(o ffmpeg pode ter descartado a faixa de vídeo)."
+            )
 
         logger.info("Renderização concluída: %s", output_path)
         return output_path
