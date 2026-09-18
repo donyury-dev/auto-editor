@@ -206,3 +206,61 @@ class ClaudeProvider(AIProvider):
                 data.get("transition_duration", 0.3)
             ),
         }
+
+    def suggest_illustration_moments(
+        self,
+        transcript_text: str,
+        segments: list[dict],
+        duration: float,
+        language: str = "pt",
+        density_s: float = 8.0,
+    ) -> list[dict]:
+        seg_lines = [
+            f"[{float(s.get('start', 0)):.2f}-{float(s.get('end', 0)):.2f}] "
+            f"{s.get('text', '')}"
+            for s in segments
+        ]
+        prompt = (
+            "Você é editor de vídeos virais. Analise a transcrição palavra a "
+            "palavra (timestamps em segundos) e sugira momentos para inserir "
+            "ilustrações (B-roll) sobre a fala.\n\n"
+            "Regras:\n"
+            "1. Sugira APENAS trechos visualmente concretos: lugares, "
+            "objetos, cenários, exemplos imagináveis. Frases abstratas não "
+            "viram imagem.\n"
+            "2. No máximo 1 sugestão a cada "
+            f"{density_s:.0f}s de fala (vídeo: {duration:.1f}s).\n"
+            "3. start/end = começo/fim da fala que a imagem deve acompanhar "
+            "(timestamps exatos das palavras).\n"
+            "4. prompt = descrição curta da imagem, no idioma da fala, "
+            "otimizada para busca em banco de imagens ou geração por IA "
+            f"({language}). Sem nomes próprios de pessoas.\n\n"
+            "Retorne EXATAMENTE este JSON (sem texto extra):\n"
+            '{"moments": [{"start": 0.0, "end": 0.0, "text": "trecho dito", '
+            '"prompt": "descrição da imagem"}]}\n\n'
+            "Palavras (start-end texto):\n" + "\n".join(seg_lines) + "\n\n"
+            f"Texto completo:\n{transcript_text}"
+        )
+        data = self._json(prompt)
+        if isinstance(data, list):  # tolerância a schema sem wrapper
+            moments = data
+        elif isinstance(data, dict):
+            moments = data.get("moments", [])
+        else:
+            moments = []
+        result = []
+        for item in moments:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(
+                    {
+                        "start": float(item.get("start", 0)),
+                        "end": float(item.get("end", 0)),
+                        "text": str(item.get("text", "")),
+                        "prompt": str(item.get("prompt", "")),
+                    }
+                )
+            except (TypeError, ValueError):
+                continue
+        return result

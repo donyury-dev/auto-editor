@@ -77,3 +77,26 @@ class AIProvider(ABC):
         }
         O chamador é responsável por validar/sanitizar o resultado.
         """
+
+    def suggest_illustration_moments(
+        self,
+        transcript_text: str,
+        segments: list[dict],
+        duration: float,
+        language: str = "pt",
+        density_s: float = 8.0,
+    ) -> list[dict]:
+        """Sugere momentos para inserir ilustrações (B-roll) na tela.
+
+        `segments` traz palavras com timestamps precisos:
+        [{"start": 0.0, "end": 0.4, "text": "oi"}, ...]
+
+        Retorna uma lista de dicts:
+        [{"start": s, "end": e, "text": "trecho da fala",
+          "prompt": "descrição da imagem para buscar/gerar"}]
+
+        Nem toda frase vira imagem — apenas menções visualmente concretas
+        (lugares, objetos, exemplos). Implementação padrão: conservadora,
+        não sugere nada (provedores devem sobrescrever).
+        """
+        return []

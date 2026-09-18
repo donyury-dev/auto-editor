@@ -17,6 +17,7 @@ OUTPUT_DIR = PROJECT_ROOT / "output"
 LOGS_DIR = PROJECT_ROOT / "logs"
 ASSETS_DIR = PROJECT_ROOT / "assets"
 FONTS_DIR = ASSETS_DIR / "fonts"
+CACHE_DIR = PROJECT_ROOT / "cache"  # sobrevive entre sessões (ex.: imagens)
 PROVIDERS_CONFIG_PATH = CONFIG_DIR / "providers.json"
 SETTINGS_PATH = CONFIG_DIR / "app_settings.json"
 
@@ -44,6 +45,9 @@ class Settings:
     # Posição vertical da legenda: % da altura da tela, a partir da base.
     # 25 = um quarto da altura acima do rodapé (típico CapCut).
     caption_vertical_position: int = 25
+    # Fase Ilustrações: fonte de B-roll (id em images/manager.py) e densidade
+    illustration_provider: str = "local"  # default: placeholder local, sem custo
+    illustration_density_s: float = 8.0  # intervalo mínimo entre ilustrações
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
@@ -67,6 +71,10 @@ class Settings:
             caption_style=str(data.get("caption_style", "viral_amarelo")),
             caption_vertical_position=int(
                 data.get("caption_vertical_position", 25)
+            ),
+            illustration_provider=str(data.get("illustration_provider", "local")),
+            illustration_density_s=float(
+                data.get("illustration_density_s", 8.0)
             ),
         )
 

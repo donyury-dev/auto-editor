@@ -575,3 +575,125 @@ class VideoProcessor:
             progress(1.0, "edição concluída")
         logger.info("Plano aplicado: %s", output_path)
         return output_path
+
+    # ------------------------------------------------------------------
+    # Ilustrações (B-roll)
+    # ------------------------------------------------------------------
+
+    ILLUSTRATION_FADE_S = 0.4  # fade in/out da ilustração
+    ILLUSTRATION_WIDTH_PCT = 0.85  # largura relativa à tela
+    ILLUSTRATION_MAX_HEIGHT_PCT = 0.35  # altura máxima relativa à tela
+    ILLUSTRATION_TOP_PCT = 12  # posição do topo (% da altura)
+
+    @classmethod
+    def _illustration_overlay_chain(
+        cls,
+        target_w: int,
+        target_h: int,
+        items: list[tuple[float, float, int]],
+    ) -> tuple[list[str], list[str]]:
+        """Monta a cadeia de filtros de overlay das ilustrações.
+
+        `items`: (start, end, input_index) — timestamps na linha do tempo
+        DO VÍDEO SENDO PROCESSADO. Retorna (filter_parts, map_labels):
+        `filter_parts` são trechos de filter_complex (a montar com ';'),
+        e `map_labels` os rótulos de entrada/saída para o chamador.
+        """
+        if not items:
+            return [], []
+
+        img_w = int(target_w * cls.ILLUSTRATION_WIDTH_PCT)
+        img_h_max = int(target_h * cls.ILLUSTRATION_MAX_HEIGHT_PCT)
+        fade = cls.ILLUSTRATION_FADE_S
+
+        parts: list[str] = []
+        inputs: list[str] = []
+        prev = "[0:v]"
+        for i, (start, end, idx) in enumerate(items):
+            inputs += ["-loop", "1", "-t", f"{end:.3f}", "-i", f"__IMG{idx}__"]
+            fade_out_st = max(0.0, end - fade)
+            parts.append(
+                f"[{idx}:v]scale={img_w}:{img_h_max}:"
+                f"force_original_aspect_ratio=decrease,format=rgba,"
+                f"fade=t=in:st={start:.3f}:d={fade}:alpha=1,"
+                f"fade=t=out:st={fade_out_st:.3f}:d={fade}:alpha=1[il{i}]"
+            )
+            out = f"[ov{i}]"
+            parts.append(
+                f"{prev}[il{i}]overlay=x='(W-w)/2':"
+                f"y='{cls.ILLUSTRATION_TOP_PCT}*H/100':"
+                f"enable='between(t,{start:.3f},{end:.3f})'{out}"
+            )
+            prev = out
+        return parts, inputs
+
+    def apply_illustrations(
+        self,
+        input_path: Path | str,
+        illustrations: list,
+        info: VideoInfo,
+        fmt: OutputFormat,
+        output_path: Path | str,
+        progress: Optional[ProgressFn] = None,
+    ) -> Path:
+        """Sobrepõe as ilustrações aprovadas ao vídeo.
+
+        `illustrations`: list[IllustrationMoment] com timestamps JÁ
+        remapeados para a linha do tempo do `input_path`. A imagem ocupa a
+        faixa superior (acima da zona da legenda) com fade in/out — nunca
+        cobre a legenda, que é queimada depois, por cima.
+        """
+        input_path = Path(input_path)
+        output_path = Path(output_path)
+        target_w, target_h = resolve_target_resolution(fmt, info)
+
+        usable = [
+            (m.start, m.end, Path(m.image_path))
+            for m in illustrations
+            if m.image_path and Path(m.image_path).exists()
+        ]
+        if not usable:
+            logger.info("Nenhuma ilustração aplicável; pulando overlay.")
+            if input_path != output_path:
+                shutil.copyfile(input_path, output_path)
+            return output_path
+
+        # normaliza o canvas (o vídeo pode não ter passado pela edição)
+        base = self._base_canvas_filter(fmt, info)
+        items = [
+            (s, e, i + 1) for i, (s, e, _p) in enumerate(usable)
+        ]
+        parts, input_args = self._illustration_overlay_chain(
+            target_w, target_h, items
+        )
+        parts = [f"[0:v]{base}[vbase]"] + [
+            p if not p.startswith("[0:v]") else p.replace("[0:v]", "[vbase]", 1)
+            for p in parts
+        ]
+        # resolve os placeholders __IMGn__ para os caminhos reais
+        resolved: list[str] = []
+        for arg in input_args:
+            if arg.startswith("__IMG") and arg.endswith("__"):
+                idx = int(arg[5:-2])
+                resolved.append(str(usable[idx - 1][2]))
+            else:
+                resolved.append(arg)
+
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(input_path), *resolved,
+            "-filter_complex", ";".join(parts),
+            "-map", "[ov{}]".format(len(items) - 1),
+        ]
+        if info.has_audio:
+            cmd += ["-map", "0:a:0?"]
+        cmd += [
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart", str(output_path),
+        ]
+        self._run_ffmpeg(cmd, f"{len(items)} ilustração(ões)")
+        if progress:
+            progress(1.0, f"{len(items)} ilustração(ões) aplicadas")
+        logger.info("Ilustrações aplicadas: %s", output_path)
+        return output_path

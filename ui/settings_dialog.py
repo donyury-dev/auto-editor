@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from ai.provider_manager import ProviderManager
 from config.settings import Settings
+from images.manager import ImageProviderManager
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,12 @@ class SettingsDialog(QDialog):
         self,
         manager: ProviderManager,
         settings: Settings,
+        image_manager: ImageProviderManager | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.manager = manager
+        self.image_manager = image_manager or ImageProviderManager()
         self.settings = settings
         self.setWindowTitle("Configurações")
         self.setMinimumWidth(480)
@@ -76,6 +79,29 @@ class SettingsDialog(QDialog):
         form.addRow("Modelo Whisper:", self.whisper_combo)
         form.addRow("Posição da legenda:", self.position_spin)
         form.addRow("", position_hint)
+
+        image_title = QLabel("Ilustrações (B-roll)")
+        image_title.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        form.addRow(image_title)
+
+        self.image_provider_combo = QComboBox()
+        self.image_model_edit = QLineEdit()
+        self.image_key_edit = QLineEdit()
+        self.image_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        image_key_hint = QLabel(
+            "A key é salva no cofre do sistema. O provedor local não exige key."
+        )
+        image_key_hint.setStyleSheet("color: gray; font-size: 11px;")
+        image_model_hint = QLabel(
+            "Para Stable Diffusion, informe a URL base da API; nos demais, o modelo."
+        )
+        image_model_hint.setStyleSheet("color: gray; font-size: 11px;")
+
+        form.addRow("Fonte das ilustrações:", self.image_provider_combo)
+        form.addRow("Modelo / URL base:", self.image_model_edit)
+        form.addRow("API Key da imagem:", self.image_key_edit)
+        form.addRow("", image_model_hint)
+        form.addRow("", image_key_hint)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -102,11 +128,34 @@ class SettingsDialog(QDialog):
         self._sync_model()
         self.provider_combo.currentIndexChanged.connect(self._sync_model)
 
+        self._image_providers = self.image_manager.describe_providers()
+        for provider in self._image_providers:
+            label = provider["label"]
+            if provider["requires_api_key"] and not provider["has_key"]:
+                label += "  (sem API key)"
+            self.image_provider_combo.addItem(label, provider["id"])
+        image_index = self.image_provider_combo.findData(
+            self.settings.illustration_provider
+        )
+        if image_index >= 0:
+            self.image_provider_combo.setCurrentIndex(image_index)
+        self._sync_image_model()
+        self.image_provider_combo.currentIndexChanged.connect(
+            self._sync_image_model
+        )
+
     def _sync_model(self) -> None:
         pid = self.provider_combo.currentData()
         for provider in self._providers:
             if provider["id"] == pid:
                 self.model_edit.setText(provider["model"] or "")
+                break
+
+    def _sync_image_model(self) -> None:
+        pid = self.image_provider_combo.currentData()
+        for provider in self._image_providers:
+            if provider["id"] == pid:
+                self.image_model_edit.setText(provider["model"] or "")
                 break
 
     def _save(self) -> None:
@@ -117,6 +166,14 @@ class SettingsDialog(QDialog):
             key = self.key_edit.text().strip()
             if key:
                 self.manager.set_api_key(pid, key)
+
+            image_pid = self.image_provider_combo.currentData()
+            self.image_manager.set_model(
+                image_pid, self.image_model_edit.text().strip()
+            )
+            image_key = self.image_key_edit.text().strip()
+            if image_key:
+                self.image_manager.set_api_key(image_pid, image_key)
         except Exception as exc:
             logger.exception("Falha ao salvar configurações de IA")
             from PyQt6.QtWidgets import QMessageBox
@@ -125,5 +182,6 @@ class SettingsDialog(QDialog):
             return
         self.settings.whisper_model = self.whisper_combo.currentText()
         self.settings.caption_vertical_position = self.position_spin.value()
+        self.settings.illustration_provider = self.image_provider_combo.currentData()
         self.settings.save()
         self.accept()

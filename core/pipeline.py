@@ -23,6 +23,11 @@ from core.edit_plan import (
     validate_plan,
 )
 from core.exporter import Exporter
+from core.illustration_plan import (
+    IllustrationMoment,
+    moments_to_json,
+    validate_illustrations,
+)
 from core.models import Transcript, Word
 from core.subtitle_engine import SubtitleEngine
 from core.transcriber import TranscriptionEngine
@@ -51,6 +56,8 @@ class PipelineContext:
     # Fase 2: plano de edição (pós-revisão) e vídeo já editado
     edit_plan: Optional[EditPlan] = None
     edited_path: Optional[Path] = None
+    # Fase Ilustrações: momentos sugeridos (pós-revisão) com imagens locais
+    illustrations: list[IllustrationMoment] = field(default_factory=list)
 
 
 class PipelineStep(ABC):
@@ -217,6 +224,162 @@ class ApplyEditsStep(PipelineStep):
         progress(1.0, f"edição aplicada: {plan.final_duration:.1f}s de vídeo")
 
 
+class BuildIllustrationPlanStep(PipelineStep):
+    """Sugere momentos de B-roll e busca/gera as imagens (com cache).
+
+    Roda na ANÁLISE, antes da tela de revisão — o usuário vê thumbnails
+    e aprova/troca/remove antes de qualquer render. Falhas de rede/key
+    degradam para placeholder local; a etapa nunca quebra.
+    """
+
+    name = "Ilustrações"
+    weight = 0.25
+
+    def __init__(self, provider_manager=None, image_manager=None) -> None:
+        self._manager = provider_manager
+        self._image_manager = image_manager
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        assert ctx.transcript is not None
+        duration = ctx.transcript.duration or (
+            ctx.transcript.words[-1].end if ctx.transcript.words else 0.0
+        )
+        segments = [
+            {"start": w.start, "end": w.end, "text": w.text}
+            for w in ctx.transcript.words
+        ]
+        density = ctx.settings.illustration_density_s
+
+        provider = None
+        source = "heurística local"
+        try:
+            if self._manager is not None:
+                provider = self._manager.get_active()
+        except Exception as exc:
+            logger.info("Provedor de IA indisponível (%s); heurística.", exc)
+        if provider is None:
+            from ai.heuristic_provider import HeuristicProvider
+
+            provider = HeuristicProvider()
+        else:
+            source = provider.label
+
+        progress(0.2, f"detectando momentos visuais ({source})…")
+        try:
+            raw = provider.suggest_illustration_moments(
+                ctx.transcript.text,
+                segments,
+                duration,
+                language=ctx.transcript.language,
+                density_s=density,
+            )
+        except Exception as exc:
+            # IA de linguagem pode falhar (rede/quota): segue sem ilustrações
+            logger.warning("Sugestão de ilustrações falhou: %s", exc)
+            raw = []
+
+        moments = [
+            IllustrationMoment(
+                start=float(m.get("start", 0)),
+                end=float(m.get("end", 0)),
+                text=str(m.get("text", "")),
+                prompt=str(m.get("prompt", "")),
+            )
+            for m in raw
+            if isinstance(m, dict)
+        ]
+        moments = validate_illustrations(
+            moments, duration, ctx.transcript.words, density_s=density
+        )
+
+        # busca/gera imagens (cache por prompt; fallback local)
+        image_provider_id = ctx.settings.illustration_provider
+        total = len(moments)
+        for i, m in enumerate(moments):
+            progress(
+                0.3 + 0.6 * (i / max(1, total)),
+                f"buscando imagem {i + 1}/{total}: “{m.prompt[:40]}…”",
+            )
+            if self._image_manager is not None:
+                try:
+                    path = self._image_manager.fetch_cached(
+                        image_provider_id, m.prompt
+                    )
+                    m.image_path = path
+                    m.source = image_provider_id
+                except Exception as exc:
+                    logger.warning("Imagem falhou (%s): %s", m.prompt, exc)
+
+        ctx.illustrations = moments
+        moments_to_json(moments, ctx.work_dir / "illustrations.json")
+        progress(
+            1.0,
+            f"{len(moments)} ilustração(ões) sugeridas"
+            + ("" if not moments else " — revise na próxima tela"),
+        )
+
+
+class ApplyIllustrationsStep(PipelineStep):
+    """Aplica as ilustrações APROVADAS sobre o vídeo editado.
+
+    Os timestamps (linha original) são remapeados pelo plano de edição;
+    momentos que caírem dentro de cortes são descartados.
+    """
+
+    name = "Ilustrações"
+    weight = 0.15
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        approved = [m for m in ctx.illustrations if m.image_path]
+        if not approved:
+            progress(1.0, "nenhuma ilustração aprovada")
+            return
+
+        plan = ctx.edit_plan
+        source = ctx.edited_path or ctx.input_path
+        processor = VideoProcessor()
+        info = processor.probe(source)
+
+        remapped: list[IllustrationMoment] = []
+        for m in approved:
+            if plan is not None and plan.cuts:
+                if any(
+                    c.start <= m.start and m.end <= c.end for c in plan.cuts
+                ):
+                    continue  # fala inteira removida
+                start = plan.remap_time(m.start)
+                end = plan.remap_time(m.end)
+            else:
+                start, end = m.start, m.end
+            if end - start < 0.5:
+                continue
+            remapped.append(
+                IllustrationMoment(
+                    start=start,
+                    end=end,
+                    text=m.text,
+                    prompt=m.prompt,
+                    image_path=m.image_path,
+                    source=m.source,
+                )
+            )
+
+        if not remapped:
+            progress(1.0, "ilustrações fora da linha do tempo; nada a aplicar")
+            return
+
+        out = ctx.work_dir / "illustrated.mp4"
+        processor.apply_illustrations(
+            source,
+            remapped,
+            info,
+            ctx.settings.output_format,
+            out,
+            progress=progress,
+        )
+        ctx.edited_path = out
+
+
 class RenderStep(PipelineStep):
     name = "Renderização"
     weight = 0.4
@@ -339,16 +502,25 @@ def build_default_pipeline() -> Pipeline:
     )
 
 
-def build_analysis_pipeline(provider_manager=None) -> Pipeline:
-    """Fase 2, etapa 1: transcrever + gerar plano (para revisão do usuário)."""
-    return Pipeline([TranscribeStep(), BuildEditPlanStep(provider_manager)])
+def build_analysis_pipeline(
+    provider_manager=None, image_manager=None
+) -> Pipeline:
+    """Análise: transcrever + plano de edição + ilustrações (p/ revisão)."""
+    return Pipeline(
+        [
+            TranscribeStep(),
+            BuildEditPlanStep(provider_manager),
+            BuildIllustrationPlanStep(provider_manager, image_manager),
+        ]
+    )
 
 
 def build_render_pipeline() -> Pipeline:
-    """Fase 2, etapa 2: aplicar plano aprovado -> legendas -> render -> export."""
+    """Render: aplicar aprovados -> legendas -> render -> export."""
     return Pipeline(
         [
             ApplyEditsStep(),
+            ApplyIllustrationsStep(),
             BuildSubtitlesStep(),
             RenderStep(),
             ExportStep(),

@@ -34,6 +34,7 @@ from core.pipeline import (
     build_analysis_pipeline,
     build_render_pipeline,
 )
+from images.manager import ImageProviderManager
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +42,25 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
 
 class AnalysisWorker(QThread):
-    """Etapa 1: transcreve e gera o plano de edição (para revisão)."""
+    """Etapa 1: transcreve, gera o plano de edição e as ilustrações."""
 
     progress = pyqtSignal(float, str, str)
     succeeded = pyqtSignal(object)  # PipelineContext com transcript + edit_plan
     failed = pyqtSignal(str)
 
-    def __init__(self, input_path: Path, settings: Settings, manager, parent=None):
+    def __init__(
+        self,
+        input_path: Path,
+        settings: Settings,
+        manager,
+        image_manager,
+        parent=None,
+    ):
         super().__init__(parent)
         self.input_path = input_path
         self.settings = settings
         self.manager = manager
+        self.image_manager = image_manager
         self.ctx: PipelineContext | None = None
 
     def run(self) -> None:
@@ -60,7 +69,7 @@ class AnalysisWorker(QThread):
                 input_path=self.input_path, settings=self.settings
             )
             self.ctx = ctx
-            build_analysis_pipeline(self.manager).run(
+            build_analysis_pipeline(self.manager, self.image_manager).run(
                 ctx,
                 lambda overall, step, msg: self.progress.emit(overall, step, msg),
             )
@@ -100,6 +109,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(720, 560)
         self.settings = Settings.load()
         self.manager = ProviderManager()
+        self.image_manager = ImageProviderManager()
         self.worker: QThread | None = None
         self._last_step: str | None = None
         self._build_ui()
@@ -149,6 +159,17 @@ class MainWindow(QMainWindow):
         format_row.addWidget(QLabel("Formato de saída:"))
         format_row.addWidget(self.format_combo, 1)
         root.addLayout(format_row)
+
+        illus_row = QHBoxLayout()
+        illus_row.addWidget(QLabel("Ilustrações (B-roll):"))
+        self.illus_combo = QComboBox()
+        for prov in self.image_manager.describe_providers():
+            self.illus_combo.addItem(prov["label"], prov["id"])
+        index = self.illus_combo.findData(self.settings.illustration_provider)
+        if index >= 0:
+            self.illus_combo.setCurrentIndex(index)
+        illus_row.addWidget(self.illus_combo, 1)
+        root.addLayout(illus_row)
 
         self.run_btn = QPushButton("Analisar e sugerir edição")
         self.run_btn.setStyleSheet("font-size: 15px; padding: 10px;")
@@ -211,7 +232,9 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         from ui.settings_dialog import SettingsDialog
 
-        dialog = SettingsDialog(self.manager, self.settings, self)
+        dialog = SettingsDialog(
+            self.manager, self.settings, self.image_manager, self
+        )
         dialog.exec()
 
     def _run(self) -> None:
@@ -223,6 +246,7 @@ class MainWindow(QMainWindow):
             return
 
         self.settings.output_format = self.format_combo.currentData()
+        self.settings.illustration_provider = self.illus_combo.currentData()
         self.settings.save()
 
         self.run_btn.setEnabled(False)
@@ -232,7 +256,9 @@ class MainWindow(QMainWindow):
         self.open_btn.setVisible(False)
         self.status_label.setText("Iniciando análise…")
 
-        self.worker = AnalysisWorker(path, self.settings, self.manager)
+        self.worker = AnalysisWorker(
+            path, self.settings, self.manager, self.image_manager
+        )
         self.worker.progress.connect(self._on_progress)
         self.worker.succeeded.connect(self._on_analysis_done)
         self.worker.failed.connect(self._on_failure)
@@ -249,15 +275,25 @@ class MainWindow(QMainWindow):
 
         self.log_box.appendPlainText(
             f"> Plano: {len(ctx.edit_plan.cuts)} corte(s), "
-            f"{len(ctx.edit_plan.zooms)} zoom(s) — aguardando sua revisão"
+            f"{len(ctx.edit_plan.zooms)} zoom(s), "
+            f"{len(ctx.illustrations)} ilustração(ões) — aguardando sua revisão"
         )
-        dialog = ReviewDialog(ctx.edit_plan, self)
+
+        def image_fetcher(prompt: str):
+            return self.image_manager.fetch_cached(
+                self.settings.illustration_provider, prompt
+            )
+
+        dialog = ReviewDialog(
+            ctx.edit_plan, ctx.illustrations, image_fetcher, self
+        )
         if dialog.exec() != ReviewDialog.DialogCode.Accepted:
             self.run_btn.setEnabled(True)
             self.status_label.setText("Revisão cancelada — nada foi renderizado.")
             return
 
         ctx.edit_plan = dialog.approved_plan()
+        ctx.illustrations = dialog.approved_illustrations()
         self.status_label.setText("Renderizando vídeo final…")
         self.progress_bar.setValue(0)
         self._last_step = None
