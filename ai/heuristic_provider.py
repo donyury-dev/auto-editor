@@ -75,7 +75,24 @@ class HeuristicProvider(AIProvider):
     def generate_caption_text(self, transcript_text, max_callouts=5):
         return []
 
-    def suggest_music_mood(self, transcript_text) -> MusicMood:
+    def suggest_music_mood(
+        self, transcript_text: str, segments=None
+    ) -> MusicMood:
+        """Clima estimado pelo ritmo da fala (palavras por segundo)."""
+        if segments:
+            words = [s for s in segments if s.get("text", "").strip()]
+            duration = max(
+                0.1,
+                float(words[-1]["end"]) - float(words[0]["start"])
+                if words
+                else 0.1,
+            )
+            rate = len(words) / duration
+            if rate >= 2.8:
+                return MusicMood(mood="energético", energy=0.8, suggested_bpm=128)
+            if rate >= 2.0:
+                return MusicMood(mood="motivacional", energy=0.6, suggested_bpm=110)
+            return MusicMood(mood="calmo", energy=0.4, suggested_bpm=90)
         return MusicMood(mood="neutro", energy=0.5)
 
     def suggest_edit_plan(

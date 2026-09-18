@@ -48,6 +48,11 @@ class Settings:
     # Fase Ilustrações: fonte de B-roll (id em images/manager.py) e densidade
     illustration_provider: str = "local"  # default: placeholder local, sem custo
     illustration_density_s: float = 8.0  # intervalo mínimo entre ilustrações
+    # Fase 4 (áudio): trilhas, efeitos sonoros e normalização da voz
+    music_dir: str = ""  # pasta extra de trilhas (além de assets/music/)
+    music_volume: float = 0.25  # volume linear da trilha antes do ducking
+    sfx_enabled: bool = True  # efeitos sonoros automáticos (whoosh/ding/…)
+    voice_normalize: bool = True  # loudnorm na voz ANTES do ducking
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
@@ -76,6 +81,10 @@ class Settings:
             illustration_density_s=float(
                 data.get("illustration_density_s", 8.0)
             ),
+            music_dir=str(data.get("music_dir", "")),
+            music_volume=float(data.get("music_volume", 0.25)),
+            sfx_enabled=bool(data.get("sfx_enabled", True)),
+            voice_normalize=bool(data.get("voice_normalize", True)),
         )
 
     def save(self, path: Path | None = None) -> None:

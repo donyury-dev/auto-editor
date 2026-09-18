@@ -54,6 +54,7 @@ class AnalysisWorker(QThread):
         settings: Settings,
         manager,
         image_manager,
+        music_manager,
         parent=None,
     ):
         super().__init__(parent)
@@ -61,6 +62,7 @@ class AnalysisWorker(QThread):
         self.settings = settings
         self.manager = manager
         self.image_manager = image_manager
+        self.music_manager = music_manager
         self.ctx: PipelineContext | None = None
 
     def run(self) -> None:
@@ -69,7 +71,9 @@ class AnalysisWorker(QThread):
                 input_path=self.input_path, settings=self.settings
             )
             self.ctx = ctx
-            build_analysis_pipeline(self.manager, self.image_manager).run(
+            build_analysis_pipeline(
+                self.manager, self.image_manager, self.music_manager
+            ).run(
                 ctx,
                 lambda overall, step, msg: self.progress.emit(overall, step, msg),
             )
@@ -124,7 +128,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
 
-        title = QLabel("Auto Editor — Fase 2 (cortes, zoom e transições)")
+        title = QLabel("Auto Editor — edição viral com IA")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         subtitle = QLabel(
             "Vídeo → transcrição → sugestões da IA → sua revisão → renderização"
@@ -256,8 +260,14 @@ class MainWindow(QMainWindow):
         self.open_btn.setVisible(False)
         self.status_label.setText("Iniciando análise…")
 
+        from audio.music_manager import MusicManager
+
         self.worker = AnalysisWorker(
-            path, self.settings, self.manager, self.image_manager
+            path,
+            self.settings,
+            self.manager,
+            self.image_manager,
+            MusicManager([self.settings.music_dir]),
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.succeeded.connect(self._on_analysis_done)
@@ -276,7 +286,9 @@ class MainWindow(QMainWindow):
         self.log_box.appendPlainText(
             f"> Plano: {len(ctx.edit_plan.cuts)} corte(s), "
             f"{len(ctx.edit_plan.zooms)} zoom(s), "
-            f"{len(ctx.illustrations)} ilustração(ões) — aguardando sua revisão"
+            f"{len(ctx.illustrations)} ilustração(ões), "
+            f"{len(ctx.audio_plan.sfx) if ctx.audio_plan else 0} efeito(s) "
+            "— aguardando sua revisão"
         )
 
         def image_fetcher(prompt: str):
@@ -284,8 +296,16 @@ class MainWindow(QMainWindow):
                 self.settings.illustration_provider, prompt
             )
 
+        from audio.music_manager import MusicManager
+
+        tracks = MusicManager([self.settings.music_dir]).tracks()
         dialog = ReviewDialog(
-            ctx.edit_plan, ctx.illustrations, image_fetcher, self
+            ctx.edit_plan,
+            ctx.illustrations,
+            image_fetcher,
+            ctx.audio_plan,
+            tracks,
+            self,
         )
         if dialog.exec() != ReviewDialog.DialogCode.Accepted:
             self.run_btn.setEnabled(True)
@@ -294,6 +314,7 @@ class MainWindow(QMainWindow):
 
         ctx.edit_plan = dialog.approved_plan()
         ctx.illustrations = dialog.approved_illustrations()
+        ctx.audio_plan = dialog.approved_audio()
         self.status_label.setText("Renderizando vídeo final…")
         self.progress_bar.setValue(0)
         self._last_step = None

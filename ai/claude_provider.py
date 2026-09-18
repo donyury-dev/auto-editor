@@ -146,11 +146,24 @@ class ClaudeProvider(AIProvider):
             if isinstance(item, dict)
         ]
 
-    def suggest_music_mood(self, transcript_text: str) -> MusicMood:
+    def suggest_music_mood(
+        self, transcript_text: str, segments=None
+    ) -> MusicMood:
+        rate_hint = ""
+        if segments:
+            words = [s for s in segments if s.get("text", "").strip()]
+            if words:
+                dur = max(
+                    0.1, float(words[-1]["end"]) - float(words[0]["start"])
+                )
+                rate_hint = (
+                    f"\nRitmo da fala: {len(words) / dur:.1f} palavras/segundo."
+                )
         prompt = (
             "Sugira o clima ideal da música de fundo para esta transcrição. "
             "Retorne JSON com as chaves: mood (string), energy (0 a 1), "
-            "keywords (lista de strings), suggested_bpm (inteiro).\n\n"
+            "keywords (lista de strings), suggested_bpm (inteiro)."
+            f"{rate_hint}\n\n"
             f"Transcrição:\n{transcript_text}"
         )
         data = self._json(prompt)

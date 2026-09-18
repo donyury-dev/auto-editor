@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.audio_plan import SFX_LABELS, AudioPlan
 from core.edit_plan import TRANSITION_TYPES, EditPlan
 from core.illustration_plan import IllustrationMoment
 
@@ -44,6 +45,8 @@ class ReviewDialog(QDialog):
         plan: EditPlan,
         illustrations: list[IllustrationMoment] | None = None,
         image_fetcher=None,
+        audio_plan: AudioPlan | None = None,
+        music_tracks=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -51,6 +54,8 @@ class ReviewDialog(QDialog):
         self.illustrations = list(illustrations or [])
         # callable(prompt) -> Path da imagem (manager.fetch_cached)
         self._image_fetcher = image_fetcher
+        self.audio_plan = audio_plan or AudioPlan()
+        self._music_tracks = list(music_tracks or [])
         self.setWindowTitle("Revisar sugestões de edição")
         self.setMinimumSize(820, 560)
 
@@ -149,6 +154,66 @@ class ReviewDialog(QDialog):
         self._illus_rows: list[dict] = []
         for m in self.illustrations:
             self._add_illus_row(m)
+
+        # ------------------------------------------------------------------
+        # Aba 3: áudio (música + efeitos sonoros)
+        # ------------------------------------------------------------------
+        audio_tab = QWidget()
+        audio_layout = QVBoxLayout(audio_tab)
+
+        audio_hint = QLabel(
+            "Trilha sugerida pelo clima da fala"
+            + (
+                f" (clima detectado: <b>{self.audio_plan.mood}</b>)"
+                if self.audio_plan.mood
+                else ""
+            )
+            + ". A voz é normalizada (−16 LUFS) antes do ducking — "
+            "quando há fala, a música abaixa automaticamente."
+        )
+        audio_hint.setWordWrap(True)
+        audio_layout.addWidget(audio_hint)
+
+        audio_form = QHBoxLayout()
+        audio_form.addWidget(QLabel("Trilha:"))
+        self.music_combo = QComboBox()
+        self.music_combo.addItem("Sem música", None)
+        current_music = str(self.audio_plan.music_path or "")
+        for i, track in enumerate(self._music_tracks):
+            self.music_combo.addItem(track.label, i)
+            if current_music and str(track.path) == current_music:
+                self.music_combo.setCurrentIndex(i + 1)
+        if not self._music_tracks:
+            self.music_combo.setItemText(0, "Sem música (biblioteca vazia)")
+        audio_form.addWidget(self.music_combo, 1)
+
+        audio_form.addWidget(QLabel("Volume:"))
+        self.music_volume_spin = QDoubleSpinBox()
+        self.music_volume_spin.setRange(0.0, 1.0)
+        self.music_volume_spin.setSingleStep(0.05)
+        self.music_volume_spin.setValue(self.audio_plan.music_volume)
+        audio_form.addWidget(self.music_volume_spin)
+
+        self.normalize_check = QCheckBox("Normalizar voz")
+        self.normalize_check.setChecked(self.audio_plan.normalize_voice)
+        self.normalize_check.stateChanged.connect(self._update_summary)
+        audio_form.addWidget(self.normalize_check)
+        audio_form.addStretch(1)
+        audio_layout.addLayout(audio_form)
+
+        self.sfx_table = QTableWidget(0, 4)
+        self.sfx_table.setHorizontalHeaderLabels(
+            ["Efeito", "Momento (s)", "Origem", "Aprovar"]
+        )
+        self.sfx_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
+        audio_layout.addWidget(self.sfx_table, 1)
+        self.tabs.addTab(audio_tab, "Áudio")
+
+        self._sfx_rows: list[dict] = []
+        for event in self.audio_plan.sfx:
+            self._add_sfx_row(event)
 
         self.summary = QLabel("")
         self.summary.setStyleSheet("font-weight: bold; padding: 4px;")
@@ -255,6 +320,31 @@ class ReviewDialog(QDialog):
 
         self._illus_rows.append({"row": row, "moment": moment})
 
+    def _add_sfx_row(self, event) -> None:
+        row = self.sfx_table.rowCount()
+        self.sfx_table.insertRow(row)
+
+        kind_item = QTableWidgetItem(SFX_LABELS.get(event.kind, event.kind))
+        kind_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.sfx_table.setItem(row, 0, kind_item)
+
+        time_item = QTableWidgetItem(f"{event.timestamp:.2f}")
+        time_item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
+        )
+        self.sfx_table.setItem(row, 1, time_item)
+
+        origin_item = QTableWidgetItem(event.origin)
+        origin_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.sfx_table.setItem(row, 2, origin_item)
+
+        checkbox = QCheckBox()
+        checkbox.setChecked(True)
+        checkbox.stateChanged.connect(self._update_summary)
+        self.sfx_table.setCellWidget(row, 3, checkbox)
+
+        self._sfx_rows.append({"row": row, "event": event})
+
     # ------------------------------------------------------------------
     # Ações
     # ------------------------------------------------------------------
@@ -267,10 +357,14 @@ class ReviewDialog(QDialog):
 
     def _set_all(self, checked: bool) -> None:
         current = self.tabs.currentIndex()
-        rows = self._rows if current == 0 else self._illus_rows
-        table = self.table if current == 0 else self.illus_table
+        if current == 0:
+            rows, table = self._rows, self.table
+        elif current == 1:
+            rows, table = self._illus_rows, self.illus_table
+        else:
+            rows, table = self._sfx_rows, self.sfx_table
         for r in rows:
-            widget = table.cellWidget(r["row"], 4)
+            widget = table.cellWidget(r["row"], 4 if current != 2 else 3)
             widget.setChecked(checked)
         self._update_summary()
 
@@ -380,6 +474,37 @@ class ReviewDialog(QDialog):
             approved_illus.append(moment)
         self.illustrations = approved_illus
 
+        # áudio: trilha, volume, normalização e efeitos aprovados
+        from core.audio_plan import SfxEvent
+
+        selected = self.music_combo.currentData()
+        if selected is None:
+            self.audio_plan.music_path = None
+            self.audio_plan.music_label = ""
+        else:
+            track = self._music_tracks[selected]
+            self.audio_plan.music_path = track.path
+            self.audio_plan.music_label = track.label
+        self.audio_plan.music_volume = self.music_volume_spin.value()
+        self.audio_plan.normalize_voice = self.normalize_check.isChecked()
+
+        approved_sfx: list[SfxEvent] = []
+        for r in self._sfx_rows:
+            checkbox = self.sfx_table.cellWidget(r["row"], 3)
+            if not checkbox.isChecked():
+                continue
+            timestamp = self._read_cell_time(
+                r["row"], 1, r["event"].timestamp, table=self.sfx_table
+            )
+            approved_sfx.append(
+                SfxEvent(
+                    kind=r["event"].kind,
+                    timestamp=timestamp,
+                    origin=r["event"].origin,
+                )
+            )
+        self.audio_plan.sfx = approved_sfx
+
         self.accept()
 
     # ------------------------------------------------------------------
@@ -407,13 +532,22 @@ class ReviewDialog(QDialog):
             if checkbox and checkbox.isChecked():
                 approved_illus += 1
 
+        approved_sfx = 0
+        for r in self._sfx_rows:
+            checkbox = self.sfx_table.cellWidget(r["row"], 3)
+            if checkbox and checkbox.isChecked():
+                approved_sfx += 1
+        has_music = self.music_combo.currentData() is not None
+
         final = max(0.0, self.plan.duration - total_cut)
         self.summary.setText(
-            f"{approved_cuts} corte(s), {approved_zooms} zoom(s) e "
-            f"{approved_illus} ilustração(ões) aprovados — "
+            f"{approved_cuts} corte(s), {approved_zooms} zoom(s), "
+            f"{approved_illus} ilustração(ões) e {approved_sfx} efeito(s) "
+            f"aprovados — "
             f"duração: {self.plan.duration:.1f}s → {final:.1f}s "
             f"(−{total_cut:.1f}s) • transição: "
-            f"{self.transition_combo.currentText()}"
+            f"{self.transition_combo.currentText()} • "
+            f"música: {'sim' if has_music else 'não'}"
         )
 
     def approved_plan(self) -> EditPlan:
@@ -423,3 +557,7 @@ class ReviewDialog(QDialog):
     def approved_illustrations(self) -> list[IllustrationMoment]:
         """Ilustrações aprovadas (após accept())."""
         return self.illustrations
+
+    def approved_audio(self) -> AudioPlan:
+        """Plano de áudio com as escolhas aprovadas (após accept())."""
+        return self.audio_plan

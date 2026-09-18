@@ -16,6 +16,13 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from config.settings import TEMP_DIR, OutputFormat, Settings
+from audio.mixer import AudioMixer
+from audio.music_manager import MusicManager
+from core.audio_plan import (
+    AudioPlan,
+    remap_sfx,
+    suggest_sfx_from_plan,
+)
 from core.caption_styles import get_caption_style
 from core.edit_plan import (
     EditPlan,
@@ -58,6 +65,8 @@ class PipelineContext:
     edited_path: Optional[Path] = None
     # Fase Ilustrações: momentos sugeridos (pós-revisão) com imagens locais
     illustrations: list[IllustrationMoment] = field(default_factory=list)
+    # Fase 4: plano de áudio (música + SFX) — pós-revisão
+    audio_plan: Optional[AudioPlan] = None
 
 
 class PipelineStep(ABC):
@@ -380,6 +389,125 @@ class ApplyIllustrationsStep(PipelineStep):
         ctx.edited_path = out
 
 
+class BuildAudioPlanStep(PipelineStep):
+    """Sugere o plano de áudio (trilha por clima + SFX) para revisão.
+
+    O clima vem do provedor de IA ativo (Claude) ou da heurística local
+    (ritmo da fala). A trilha é escolhida na biblioteca local do usuário;
+    sem trilhas cadastradas, segue sem música — nunca quebra.
+    """
+
+    name = "Áudio"
+    weight = 0.1
+
+    def __init__(self, provider_manager=None, music_manager=None) -> None:
+        self._manager = provider_manager
+        self._music_manager = music_manager
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        assert ctx.transcript is not None and ctx.edit_plan is not None
+        segments = [
+            {"start": w.start, "end": w.end, "text": w.text}
+            for w in ctx.transcript.words
+        ]
+
+        provider = None
+        source = "heurística local"
+        try:
+            if self._manager is not None:
+                provider = self._manager.get_active()
+        except Exception as exc:
+            logger.info("Provedor de IA indisponível (%s); heurística.", exc)
+        if provider is None:
+            from ai.heuristic_provider import HeuristicProvider
+
+            provider = HeuristicProvider()
+        else:
+            source = provider.label
+
+        progress(0.3, f"sugerindo clima da trilha ({source})…")
+        try:
+            mood = provider.suggest_music_mood(
+                ctx.transcript.text, segments
+            )
+        except Exception as exc:
+            logger.warning("Sugestão de clima falhou (%s); neutro.", exc)
+            from ai.heuristic_provider import HeuristicProvider
+
+            mood = HeuristicProvider().suggest_music_mood(
+                ctx.transcript.text, segments
+            )
+
+        track = None
+        if self._music_manager is not None:
+            progress(0.6, "escolhendo trilha na biblioteca…")
+            track = self._music_manager.pick(mood.mood, mood.energy)
+        if track is None:
+            logger.info("Biblioteca de músicas vazia; seguindo sem trilha.")
+
+        sfx = (
+            suggest_sfx_from_plan(ctx.edit_plan, ctx.illustrations)
+            if ctx.settings.sfx_enabled
+            else []
+        )
+
+        ctx.audio_plan = AudioPlan(
+            mood=mood.mood,
+            energy=mood.energy,
+            music_path=track.path if track else None,
+            music_label=track.label if track else "",
+            music_volume=ctx.settings.music_volume,
+            normalize_voice=ctx.settings.voice_normalize,
+            sfx=sfx,
+        )
+        ctx.audio_plan.save(ctx.work_dir / "audio_plan.json")
+        progress(
+            1.0,
+            f"clima “{mood.mood}” • "
+            + (f"trilha: {track.path.name}" if track else "sem trilha")
+            + f" • {len(sfx)} efeito(s) — revise na próxima tela",
+        )
+
+
+class ApplyAudioStep(PipelineStep):
+    """Aplica o plano de áudio APROVADO: loudnorm + trilha com ducking + SFX.
+
+    Os timestamps dos efeitos são remapeados pelo plano de edição; a voz
+    é normalizada ANTES do ducking (exigência do projeto).
+    """
+
+    name = "Áudio"
+    weight = 0.15
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        plan = ctx.audio_plan
+        if plan is None:
+            progress(1.0, "sem plano de áudio")
+            return
+        if (
+            plan.music_path is None
+            and not plan.sfx
+            and not plan.normalize_voice
+        ):
+            progress(1.0, "áudio inalterado (nada aprovado)")
+            return
+
+        source = ctx.edited_path or ctx.input_path
+        processor = VideoProcessor()
+        info = processor.probe(source)
+
+        plan.sfx = remap_sfx(plan.sfx, ctx.edit_plan)
+        out = ctx.work_dir / "mixed.mp4"
+        AudioMixer().apply(
+            source,
+            plan,
+            info,
+            out,
+            progress=progress,
+        )
+        ctx.edited_path = out
+
+
 class RenderStep(PipelineStep):
     name = "Renderização"
     weight = 0.4
@@ -503,24 +631,28 @@ def build_default_pipeline() -> Pipeline:
 
 
 def build_analysis_pipeline(
-    provider_manager=None, image_manager=None
+    provider_manager=None,
+    image_manager=None,
+    music_manager=None,
 ) -> Pipeline:
-    """Análise: transcrever + plano de edição + ilustrações (p/ revisão)."""
+    """Análise: transcrever + planos de edição/ilustrações/áudio (revisão)."""
     return Pipeline(
         [
             TranscribeStep(),
             BuildEditPlanStep(provider_manager),
             BuildIllustrationPlanStep(provider_manager, image_manager),
+            BuildAudioPlanStep(provider_manager, music_manager),
         ]
     )
 
 
 def build_render_pipeline() -> Pipeline:
-    """Render: aplicar aprovados -> legendas -> render -> export."""
+    """Render: aplicar aprovados -> áudio -> legendas -> render -> export."""
     return Pipeline(
         [
             ApplyEditsStep(),
             ApplyIllustrationsStep(),
+            ApplyAudioStep(),
             BuildSubtitlesStep(),
             RenderStep(),
             ExportStep(),

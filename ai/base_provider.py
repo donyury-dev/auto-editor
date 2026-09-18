@@ -52,8 +52,17 @@ class AIProvider(ABC):
         """Gera textos de call-out (palavras-chave em destaque na tela)."""
 
     @abstractmethod
-    def suggest_music_mood(self, transcript_text: str) -> MusicMood:
-        """Sugere o clima/energia da música de fundo."""
+    def suggest_music_mood(
+        self,
+        transcript_text: str,
+        segments: Optional[list[dict]] = None,
+    ) -> MusicMood:
+        """Sugere o clima/energia da música de fundo.
+
+        `segments` (opcional) traz palavras com timestamps, permitindo
+        estimar o ritmo da fala:
+        [{"start": 0.0, "end": 0.4, "text": "oi"}, ...]
+        """
 
     @abstractmethod
     def suggest_edit_plan(

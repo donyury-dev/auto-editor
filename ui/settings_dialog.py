@@ -102,6 +102,30 @@ class SettingsDialog(QDialog):
         form.addRow("API Key da imagem:", self.image_key_edit)
         form.addRow("", image_model_hint)
         form.addRow("", image_key_hint)
+
+        music_title = QLabel("Música e efeitos")
+        music_title.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        form.addRow(music_title)
+
+        self.music_dir_edit = QLineEdit()
+        self.music_dir_edit.setText(self.settings.music_dir)
+        self.music_dir_edit.setPlaceholderText(
+            "Pasta extra de trilhas (MP3/WAV/M4A/OGG), além de assets/music/"
+        )
+        music_browse = QPushButton("Procurar…")
+        music_browse.clicked.connect(self._browse_music_dir)
+        music_row = QHBoxLayout()
+        music_row.addWidget(self.music_dir_edit, 1)
+        music_row.addWidget(music_browse)
+        form.addRow("Pasta de músicas:", music_row)
+        music_hint = QLabel(
+            "Coloque trilhas livres de direitos na pasta. Um music.json "
+            "opcional descreve o clima de cada arquivo. Sem trilhas, o vídeo "
+            "sai sem música (os efeitos sonoros continuam)."
+        )
+        music_hint.setStyleSheet("color: gray; font-size: 11px;")
+        music_hint.setWordWrap(True)
+        form.addRow("", music_hint)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -158,6 +182,15 @@ class SettingsDialog(QDialog):
                 self.image_model_edit.setText(provider["model"] or "")
                 break
 
+    def _browse_music_dir(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog
+
+        path = QFileDialog.getExistingDirectory(
+            self, "Escolher pasta de músicas"
+        )
+        if path:
+            self.music_dir_edit.setText(path)
+
     def _save(self) -> None:
         pid = self.provider_combo.currentData()
         try:
@@ -183,5 +216,6 @@ class SettingsDialog(QDialog):
         self.settings.whisper_model = self.whisper_combo.currentText()
         self.settings.caption_vertical_position = self.position_spin.value()
         self.settings.illustration_provider = self.image_provider_combo.currentData()
+        self.settings.music_dir = self.music_dir_edit.text().strip()
         self.settings.save()
         self.accept()
