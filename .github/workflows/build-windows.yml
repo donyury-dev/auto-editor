@@ -1,0 +1,100 @@
+name: Build Windows Installer
+
+on:
+  # Permite rodar manualmente informando a versão desejada.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão do release (ex: 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+  # Também executa automaticamente ao fazer push em branches release/*,
+  # gerando um artifact (não cria release automaticamente para evitar tags
+  # duplicadas).
+  push:
+    branches:
+      - release/*
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-latest
+    permissions:
+      contents: write  # necessário para criar releases
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Instalar Inno Setup
+        run: choco install innosetup -y
+
+      - name: Adicionar Inno Setup ao PATH
+        shell: pwsh
+        run: |
+          $isccDir = "C:\Program Files (x86)\Inno Setup 6"
+          if (Test-Path $isccDir) {
+            "$isccDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            Write-Host "Inno Setup adicionado ao PATH: $isccDir"
+          } else {
+            Write-Warning "Diretório do Inno Setup não encontrado em $isccDir"
+          }
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Baixar FFmpeg, modelo Whisper e trilhas
+        run: |
+          python scripts/download_ffmpeg.py
+          python scripts/download_whisper_model.py
+          python scripts/download_sample_music.py
+        timeout-minutes: 30
+
+      - name: Build do executável e instalador
+        run: python scripts/build_executable.py
+        timeout-minutes: 60
+
+      - name: Verificar arquivos gerados
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path dist -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName
+
+      - name: Upload do instalador como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoEditorSetup-${{ github.event.inputs.version || github.ref_name }}
+          path: dist/AutoEditorSetup-*.exe
+          if-no-files-found: error
+
+      - name: Criar Release no GitHub
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: Auto Editor v${{ github.event.inputs.version }}
+          body: |
+            Instalador Windows do Auto Editor ("abrir e usar").
+
+            Inclui:
+            - Executável standalone (PyInstaller)
+            - FFmpeg embutido
+            - Modelo Whisper `small` para transcrição offline
+            - 3 trilhas de exemplo sem direitos autorais
+
+            **Aviso:** como o instalador não está assinado digitalmente, o
+            Windows pode exibir a tela "O Windows protegeu seu PC". Clique em
+            "Mais informações" → "Executar assim mesmo" para prosseguir.
+          files: dist/AutoEditorSetup-*.exe
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

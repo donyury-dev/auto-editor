@@ -16,6 +16,8 @@ from typing import Optional, Type
 
 from ai.base_provider import AIProvider
 from ai.claude_provider import ClaudeProvider
+from ai.ollama_provider import OllamaProvider
+from ai.openai_provider import OpenAIProvider
 from config.settings import PROVIDERS_CONFIG_PATH
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,8 @@ class ProviderManager:
         self.config_path = Path(config_path or PROVIDERS_CONFIG_PATH)
         self._providers: dict[str, Type[AIProvider]] = {}
         self.register(ClaudeProvider)
+        self.register(OpenAIProvider)
+        self.register(OllamaProvider)
         self._keyring_ok = use_keyring and self._keyring_available()
         if not self._keyring_ok:
             logger.warning(
@@ -111,7 +115,9 @@ class ProviderManager:
                     "id": pid,
                     "label": cls.label,
                     "model": conf.get("model", cls.default_model),
+                    "base_url": conf.get("base_url", ""),
                     "requires_api_key": cls.requires_api_key,
+                    "supports_base_url": cls.supports_base_url,
                     "has_key": bool(self.get_api_key(pid)),
                 }
             )
@@ -133,6 +139,14 @@ class ProviderManager:
         self._config.setdefault("providers", {}).setdefault(provider_id, {})[
             "model"
         ] = model
+        self._save()
+
+    def set_base_url(self, provider_id: str, base_url: str) -> None:
+        if provider_id not in self._providers:
+            raise ValueError(f"Provedor desconhecido: {provider_id}")
+        self._config.setdefault("providers", {}).setdefault(provider_id, {})[
+            "base_url"
+        ] = base_url.strip()
         self._save()
 
     def set_api_key(self, provider_id: str, key: str) -> None:
@@ -190,4 +204,8 @@ class ProviderManager:
                 "Configurações > Provedores de IA."
             )
         conf = self._config.get("providers", {}).get(pid, {})
-        return cls(api_key=api_key, model=conf.get("model"))
+        return cls(
+            api_key=api_key,
+            model=conf.get("model"),
+            base_url=conf.get("base_url") or None,
+        )

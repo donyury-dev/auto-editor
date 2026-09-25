@@ -25,6 +25,7 @@ from config.settings import (
 )
 from core.edit_plan import EditPlan
 from core.face_detection import detect_face_center
+from core.ffmpeg_path import get_ffmpeg, get_ffprobe
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ class VideoProcessor:
     def probe(self, path: Path | str) -> VideoInfo:
         """Lê dimensões e duração do vídeo via ffprobe."""
         cmd = [
-            "ffprobe",
+            get_ffprobe(),
             "-v",
             "error",
             "-print_format",
@@ -85,8 +86,8 @@ class VideoProcessor:
             )
         except FileNotFoundError as exc:
             raise VideoProcessingError(
-                "ffprobe não encontrado. Instale o FFmpeg "
-                "(https://ffmpeg.org) e certifique-se de que está no PATH."
+                "ffprobe não encontrado. O pacote deve incluir o FFmpeg "
+                "em bin/ffmpeg/ ou o FFmpeg deve estar no PATH."
             ) from exc
         if result.returncode != 0:
             raise VideoProcessingError(
@@ -189,7 +190,7 @@ class VideoProcessor:
         filter_args = self._build_filter_args(fmt, info, ass_arg)
 
         cmd = [
-            "ffmpeg",
+            get_ffmpeg(),
             "-y",
             "-i",
             str(input_path),
@@ -327,7 +328,7 @@ class VideoProcessor:
     ) -> bool:
         """Extrai um único frame do vídeo no timestamp especificado."""
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
             "-ss", f"{timestamp:.3f}", "-i", str(input_path),
             "-frames:v", "1", "-q:v", "2",
             str(out_path),
@@ -416,11 +417,21 @@ class VideoProcessor:
         fc = f"[0:v]{base}{zoom_chain}[vout]"
 
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-ss", f"{seg_start:.3f}", "-i", str(input_path),
-            "-t", f"{max(0.05, seg_end - seg_start):.3f}",
-            "-filter_complex", fc,
-            "-map", "[vout]",
+            get_ffmpeg(),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{seg_start:.3f}",
+            "-i",
+            str(input_path),
+            "-t",
+            f"{max(0.05, seg_end - seg_start):.3f}",
+            "-filter_complex",
+            fc,
+            "-map",
+            "[vout]",
         ]
         if info.has_audio:
             cmd += ["-map", "0:a:0?"]
@@ -442,17 +453,15 @@ class VideoProcessor:
                     cmd, stdout=subprocess.DEVNULL, stderr=err_file, text=True
                 )
             except FileNotFoundError as exc:
-                if exc.filename and Path(exc.filename).name not in (
-                    "ffmpeg",
-                    "ffprobe",
-                ):
+                missing_name = Path(exc.filename).name if exc.filename else "ffmpeg"
+                if missing_name not in ("ffmpeg", "ffprobe"):
                     # argumento inválido, não binário ausente
                     raise VideoProcessingError(
                         f"Comando FFmpeg malformado em '{label}': {exc}"
                     ) from exc
                 raise VideoProcessingError(
-                    "ffmpeg não encontrado. Instale o FFmpeg e garanta que "
-                    "esteja no PATH."
+                    "ffmpeg não encontrado. O pacote deve incluir o FFmpeg "
+                    "em bin/ffmpeg/ ou o FFmpeg deve estar no PATH."
                 ) from exc
             returncode = proc.wait()
             if returncode != 0:
@@ -476,7 +485,7 @@ class VideoProcessor:
         for p in seg_paths:
             inputs += ["-i", str(p)]
 
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs]
+        cmd = [get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", *inputs]
 
         if plan.transition_type == "corte":
             # corte seco: concat simples (esta build exige vídeo/áudio alternados)
@@ -585,6 +594,102 @@ class VideoProcessor:
     ILLUSTRATION_MAX_HEIGHT_PCT = 0.35  # altura máxima relativa à tela
     ILLUSTRATION_TOP_PCT = 12  # posição do topo (% da altura)
 
+    def apply_callouts(
+        self,
+        input_path: Path | str,
+        ass_path: Path | str,
+        info: VideoInfo,
+        fmt: OutputFormat,
+        output_path: Path | str,
+        progress: Optional[ProgressFn] = None,
+    ) -> Path:
+        """Queima a camada ASS de call-outs sem misturá-la às legendas."""
+        input_path = Path(input_path)
+        ass_path = Path(ass_path)
+        output_path = Path(output_path)
+        current_info = self.probe(input_path)
+        target_w, target_h = resolve_target_resolution(fmt, current_info)
+        filter_args = self._build_filter_args(
+            fmt, current_info, self._ass_filter_arg(ass_path)
+        )
+        cmd = [
+            get_ffmpeg(),
+            "-y",
+            "-i",
+            str(input_path),
+            *filter_args,
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            "-loglevel",
+            "error",
+            "-progress",
+            "pipe:1",
+            "-nostats",
+            str(output_path),
+        ]
+        logger.info("Aplicando call-outs: %s -> %s", input_path.name, output_path)
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err_file:
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=err_file,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                raise VideoProcessingError(
+                    "ffmpeg não encontrado. Instale o FFmpeg "
+                    "e certifique-se de que está no PATH."
+                ) from exc
+
+            duration = max(current_info.duration, 0.1)
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.strip()
+                if not line.startswith("out_time_ms=") or progress is None:
+                    continue
+                try:
+                    elapsed_us = int(line.split("=", 1)[1])
+                except ValueError:
+                    continue
+                frac = min(1.0, (elapsed_us / 1_000_000) / duration)
+                progress(frac, f"call-outs… {int(frac * 100)}%")
+
+            returncode = proc.wait()
+            if returncode != 0:
+                err_file.seek(0)
+                err = err_file.read()
+                raise VideoProcessingError(
+                    f"FFmpeg falhou nos call-outs (código {returncode}): "
+                    f"{err.strip()[-800:]}"
+                )
+
+        out_info = self.probe(output_path)
+        expected = (target_w - target_w % 2, target_h - target_h % 2)
+        if (out_info.width, out_info.height) != expected:
+            raise VideoProcessingError(
+                f"Saída de call-out inválida: esperado "
+                f"{expected[0]}x{expected[1]}, obtido "
+                f"{out_info.width}x{out_info.height}."
+            )
+        if progress:
+            progress(1.0, "call-outs aplicados")
+        return output_path
+
     @classmethod
     def _illustration_overlay_chain(
         cls,
@@ -680,7 +785,7 @@ class VideoProcessor:
                 resolved.append(arg)
 
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(input_path), *resolved,
             "-filter_complex", ";".join(parts),
             "-map", "[ov{}]".format(len(items) - 1),

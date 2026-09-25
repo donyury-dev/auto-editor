@@ -52,6 +52,29 @@ class HeuristicProvider(AIProvider):
     label = "Heurística local (sem IA)"
     default_model = ""
     requires_api_key = False
+    supports_base_url = False
+
+    def __init__(self, api_key=None, model=None, base_url=None):
+        super().__init__(api_key=api_key, model=model, base_url=base_url)
+        # Parâmetros ajustáveis via template (settings);
+        # valores padrão mantidos para compatibilidade.
+        self.silence_gap_s = 0.7
+        self.max_zooms = 4
+        self.zoom_spread_s = 6.0
+        self.zoom_intensity = 0.10
+        self.transition_type = "corte"
+        self.transition_duration = 0.1
+
+    def configure_from_settings(self, settings) -> None:
+        """Aplica os parâmetros de ritmo das Settings (template ativo)."""
+        self.silence_gap_s = getattr(settings, "silence_gap_s", self.silence_gap_s)
+        self.max_zooms = getattr(settings, "max_zooms", self.max_zooms)
+        self.zoom_spread_s = getattr(settings, "zoom_spread_s", self.zoom_spread_s)
+        self.zoom_intensity = getattr(settings, "zoom_intensity", self.zoom_intensity)
+        self.transition_type = getattr(settings, "transition_type", self.transition_type)
+        self.transition_duration = getattr(
+            settings, "transition_duration", self.transition_duration
+        )
 
     # ------------------------------------------------------------------
     # Contrato AIProvider — decisões simples, sem rede
@@ -108,7 +131,7 @@ class HeuristicProvider(AIProvider):
         cuts = []
         for i in range(1, len(words)):
             gap = float(words[i]["start"]) - float(words[i - 1]["end"])
-            if gap >= SILENCE_GAP_S:
+            if gap >= self.silence_gap_s:
                 cuts.append(
                     {
                         "start": float(words[i - 1]["end"]),
@@ -116,7 +139,7 @@ class HeuristicProvider(AIProvider):
                         "reason": f"silêncio de {gap:.1f}s",
                     }
                 )
-        if words and duration - float(words[-1]["end"]) >= SILENCE_GAP_S:
+        if words and duration - float(words[-1]["end"]) >= self.silence_gap_s:
             cuts.append(
                 {
                     "start": float(words[-1]["end"]),
@@ -134,10 +157,10 @@ class HeuristicProvider(AIProvider):
             ],
             key=lambda w: float(w["end"]) - float(w["start"]),
             reverse=True,
-        )[: MAX_ZOOMS * 3]
+        )[: self.max_zooms * 3]
         zooms = []
         for w in candidates:
-            if len(zooms) >= MAX_ZOOMS:
+            if len(zooms) >= self.max_zooms:
                 break
             start = max(0.0, float(w["start"]) - ZOOM_PAD_BEFORE_S)
             end = min(duration, float(w["end"]) + ZOOM_PAD_AFTER_S)
@@ -146,13 +169,13 @@ class HeuristicProvider(AIProvider):
                 center = (start + end) / 2
                 start = max(0.0, center - ZOOM_MIN_DURATION_S / 2)
                 end = min(duration, center + ZOOM_MIN_DURATION_S / 2)
-            if any(abs(z["start"] - start) < ZOOM_SPREAD_S for z in zooms):
+            if any(abs(z["start"] - start) < self.zoom_spread_s for z in zooms):
                 continue
             zooms.append(
                 {
                     "start": start,
                     "end": end,
-                    "intensity": ZOOM_INTENSITY,
+                    "intensity": self.zoom_intensity,
                     "reason": (
                         f"ênfase em “{w['text'].strip('.,!?;:')}”"
                     ),
@@ -162,8 +185,8 @@ class HeuristicProvider(AIProvider):
         return {
             "cuts": cuts,
             "zooms": zooms,
-            "transition_type": "corte",  # talking head fica mais natural com corte seco
-            "transition_duration": 0.1,
+            "transition_type": self.transition_type,
+            "transition_duration": self.transition_duration,
         }
 
     def suggest_illustration_moments(
@@ -235,6 +258,8 @@ class HeuristicProvider(AIProvider):
                             for w in words[i:j]
                         ),
                         "prompt": " ".join(content).lower(),
+                        "kind": "callout",
+                        "callout_text": " ".join(content),
                     }
                 )
                 last_start = trigger_start

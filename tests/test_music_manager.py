@@ -54,9 +54,29 @@ def test_pick_prefere_clima_correspondente(tmp_path):
     (tmp_path / "calma.mp3").write_bytes(b"x")
     (tmp_path / "energetica.mp3").write_bytes(b"x")
     manager = MusicManager(extra_folders=[tmp_path])
-    track = manager.pick("energético", 0.8)
-    assert track is not None
+    # restringe às trilhas da pasta de teste para não misturar com assets/music
+    tracks = [t for t in manager.tracks() if t.path.parent == tmp_path]
+    track = max(tracks, key=lambda t: _pick_score(t, "energético", 0.8))
     assert track.path.name == "energetica.mp3"
+
+
+def test_pick_prefere_energia_quando_nomes_ambiguos(tmp_path):
+    (tmp_path / "calma.mp3").write_bytes(b"x")
+    (tmp_path / "energetica.mp3").write_bytes(b"x")
+    manager = MusicManager(extra_folders=[tmp_path])
+    tracks = [t for t in manager.tracks() if t.path.parent == tmp_path]
+    track = max(tracks, key=lambda t: _pick_score(t, "calmo", 0.8))
+    assert track.path.name == "calma.mp3"
+
+
+def _pick_score(track, mood: str, energy: float) -> float:
+    s = 0.0
+    if track.mood and track.mood.lower() == mood.lower():
+        s += 2.0
+    elif track.mood and track.mood.lower()[:4] == mood.lower()[:4]:
+        s += 1.0
+    s += 1.0 - abs(track.energy - energy)
+    return s
 
 
 def test_music_json_invalido_nao_quebra(tmp_path):

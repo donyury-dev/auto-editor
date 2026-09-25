@@ -158,6 +158,10 @@ class BuildEditPlanStep(PipelineStep):
         else:
             source = provider.label
 
+        # Aplica os parâmetros de ritmo do template ativo (Settings)
+        if hasattr(provider, "configure_from_settings"):
+            provider.configure_from_settings(ctx.settings)
+
         progress(0.5, f"sugerindo cortes e zooms ({source})…")
         raw = provider.suggest_edit_plan(
             text, segments, duration, language=ctx.transcript.language
@@ -241,7 +245,7 @@ class BuildIllustrationPlanStep(PipelineStep):
     degradam para placeholder local; a etapa nunca quebra.
     """
 
-    name = "Ilustrações"
+    name = "Destaques"
     weight = 0.25
 
     def __init__(self, provider_manager=None, image_manager=None) -> None:
@@ -293,6 +297,12 @@ class BuildIllustrationPlanStep(PipelineStep):
                 end=float(m.get("end", 0)),
                 text=str(m.get("text", "")),
                 prompt=str(m.get("prompt", "")),
+                kind=str(m.get("kind", "callout")),
+                callout_text=str(
+                    m.get("callout_text", "")
+                    or m.get("text", "")
+                    or m.get("prompt", "")
+                ),
             )
             for m in raw
             if isinstance(m, dict)
@@ -301,7 +311,6 @@ class BuildIllustrationPlanStep(PipelineStep):
             moments, duration, ctx.transcript.words, density_s=density
         )
 
-        # busca/gera imagens (cache por prompt; fallback local)
         image_provider_id = ctx.settings.illustration_provider
         total = len(moments)
         for i, m in enumerate(moments):
@@ -335,12 +344,19 @@ class ApplyIllustrationsStep(PipelineStep):
     momentos que caírem dentro de cortes são descartados.
     """
 
-    name = "Ilustrações"
+    name = "Destaques"
     weight = 0.15
 
     def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
-        approved = [m for m in ctx.illustrations if m.image_path]
-        if not approved:
+        approved_images = [
+            m for m in ctx.illustrations
+            if m.kind == "image" and m.image_path
+        ]
+        approved_callouts = [
+            m for m in ctx.illustrations
+            if m.kind == "callout"
+        ]
+        if not approved_images and not approved_callouts:
             progress(1.0, "nenhuma ilustração aprovada")
             return
 
@@ -350,7 +366,7 @@ class ApplyIllustrationsStep(PipelineStep):
         info = processor.probe(source)
 
         remapped: list[IllustrationMoment] = []
-        for m in approved:
+        for m in [*approved_images, *approved_callouts]:
             if plan is not None and plan.cuts:
                 if any(
                     c.start <= m.start and m.end <= c.end for c in plan.cuts
@@ -370,6 +386,8 @@ class ApplyIllustrationsStep(PipelineStep):
                     prompt=m.prompt,
                     image_path=m.image_path,
                     source=m.source,
+                    kind=m.kind,
+                    callout_text=m.callout_text,
                 )
             )
 
@@ -377,16 +395,41 @@ class ApplyIllustrationsStep(PipelineStep):
             progress(1.0, "ilustrações fora da linha do tempo; nada a aplicar")
             return
 
-        out = ctx.work_dir / "illustrated.mp4"
-        processor.apply_illustrations(
-            source,
-            remapped,
-            info,
-            ctx.settings.output_format,
-            out,
-            progress=progress,
-        )
-        ctx.edited_path = out
+        current_source = source
+        images = [m for m in remapped if m.kind == "image" and m.image_path]
+        if images:
+            out = ctx.work_dir / "illustrated.mp4"
+            processor.apply_illustrations(
+                current_source,
+                images,
+                info,
+                ctx.settings.output_format,
+                out,
+                progress=progress,
+            )
+            current_source = out
+
+        callouts = [m for m in remapped if m.kind == "callout"]
+        if callouts:
+            out = ctx.work_dir / "callouts.mp4"
+            callout_ass = ctx.work_dir / "callouts.ass"
+            target_w, target_h = resolve_target_resolution(
+                ctx.settings.output_format, info
+            )
+            from core.callout_engine import write_callouts_ass
+
+            write_callouts_ass(callouts, callout_ass, target_w, target_h)
+            processor.apply_callouts(
+                current_source,
+                callout_ass,
+                info,
+                ctx.settings.output_format,
+                out,
+                progress=progress,
+            )
+            current_source = out
+
+        ctx.edited_path = current_source
 
 
 class BuildAudioPlanStep(PipelineStep):

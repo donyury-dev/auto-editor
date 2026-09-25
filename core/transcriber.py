@@ -63,8 +63,19 @@ class TranscriptionEngine:
             self.model_size,
             self.device,
         )
+        from config.settings import PROJECT_ROOT
+
+        local_model_dir = PROJECT_ROOT / "models" / "whisper"
+        download_root = (
+            str(local_model_dir)
+            if local_model_dir.exists()
+            else None
+        )
         model = WhisperModel(
-            self.model_size, device=self.device, compute_type=self.compute_type
+            self.model_size,
+            device=self.device,
+            compute_type=self.compute_type,
+            download_root=download_root,
         )
         segments, info = model.transcribe(
             str(media_path), word_timestamps=True, vad_filter=True

@@ -78,7 +78,13 @@ def test_validate_limite_max_moments():
 def test_serializacao_json(tmp_path):
     moments = [
         IllustrationMoment(
-            start=1.0, end=3.0, text="oi", prompt="casa", source="local"
+            start=1.0,
+            end=3.0,
+            text="oi",
+            prompt="casa",
+            source="local",
+            kind="callout",
+            callout_text="CASA",
         )
     ]
     path = moments_to_json(moments, tmp_path / "illus.json")
@@ -86,3 +92,5 @@ def test_serializacao_json(tmp_path):
     assert len(loaded) == 1
     assert loaded[0].prompt == "casa"
     assert loaded[0].image_path is None
+    assert loaded[0].kind == "callout"
+    assert loaded[0].callout_text == "CASA"

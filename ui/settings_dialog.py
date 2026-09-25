@@ -49,6 +49,10 @@ class SettingsDialog(QDialog):
 
         self.provider_combo = QComboBox()
         self.model_edit = QLineEdit()
+        self.base_url_edit = QLineEdit()
+        self.base_url_edit.setPlaceholderText(
+            "URL base (opcional — ex.: http://localhost:11434 para Ollama)"
+        )
         self.key_edit = QLineEdit()
         self.key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         key_hint = QLabel(
@@ -74,13 +78,14 @@ class SettingsDialog(QDialog):
 
         form.addRow("Provedor de IA:", self.provider_combo)
         form.addRow("Modelo:", self.model_edit)
+        form.addRow("URL base:", self.base_url_edit)
         form.addRow("API Key:", self.key_edit)
         form.addRow("", key_hint)
         form.addRow("Modelo Whisper:", self.whisper_combo)
         form.addRow("Posição da legenda:", self.position_spin)
         form.addRow("", position_hint)
 
-        image_title = QLabel("Ilustrações (B-roll)")
+        image_title = QLabel("Destaques em imagem (B-roll)")
         image_title.setStyleSheet("font-weight: bold; margin-top: 8px;")
         form.addRow(image_title)
 
@@ -173,6 +178,8 @@ class SettingsDialog(QDialog):
         for provider in self._providers:
             if provider["id"] == pid:
                 self.model_edit.setText(provider["model"] or "")
+                self.base_url_edit.setText(provider.get("base_url", ""))
+                self.base_url_edit.setEnabled(provider.get("supports_base_url", False))
                 break
 
     def _sync_image_model(self) -> None:
@@ -196,6 +203,7 @@ class SettingsDialog(QDialog):
         try:
             self.manager.set_active(pid)
             self.manager.set_model(pid, self.model_edit.text().strip())
+            self.manager.set_base_url(pid, self.base_url_edit.text().strip())
             key = self.key_edit.text().strip()
             if key:
                 self.manager.set_api_key(pid, key)

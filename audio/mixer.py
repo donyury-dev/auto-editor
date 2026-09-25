@@ -21,6 +21,7 @@ from typing import Callable, Optional
 
 from audio.sfx_engine import get_sfx
 from core.audio_plan import AudioPlan, SfxEvent
+from core.ffmpeg_path import get_ffmpeg
 from core.video_processor import VideoInfo, VideoProcessingError, VideoProcessor
 
 logger = logging.getLogger(__name__)
@@ -152,7 +153,7 @@ class AudioMixer:
                     event.kind, self._sfx_cache_dir
                 )
 
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(video_path)]
+        cmd = [get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video_path)]
         if plan.music_path:
             # trilha em loop (cobre vídeos maiores que a música)
             cmd += ["-stream_loop", "-1", "-i", str(plan.music_path)]

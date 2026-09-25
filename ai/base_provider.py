@@ -20,11 +20,18 @@ class AIProvider(ABC):
     label: ClassVar[str] = "Provedor base"
     default_model: ClassVar[str] = ""
     requires_api_key: ClassVar[bool] = True
+    supports_base_url: ClassVar[bool] = False
     env_key: ClassVar[str] = ""  # variável de ambiente usada como fallback
 
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ):
         self.api_key = api_key
         self.model = model or self.default_model
+        self.base_url = base_url
 
     @abstractmethod
     def analyze_transcript(
@@ -102,10 +109,12 @@ class AIProvider(ABC):
 
         Retorna uma lista de dicts:
         [{"start": s, "end": e, "text": "trecho da fala",
-          "prompt": "descrição da imagem para buscar/gerar"}]
+          "prompt": "descrição da imagem para buscar/gerar",
+          "kind": "callout", "callout_text": "FRASE CURTA"}]
 
         Nem toda frase vira imagem — apenas menções visualmente concretas
-        (lugares, objetos, exemplos). Implementação padrão: conservadora,
-        não sugere nada (provedores devem sobrescrever).
+        (lugares, objetos, exemplos). `kind` pode ser `image`, `callout` ou
+        `none`; o padrão de revisão é `callout`. Implementação padrão:
+        conservadora, não sugere nada (provedores devem sobrescrever).
         """
         return []

@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+def _project_root() -> Path:
+    """Retorna a raiz do projeto em desenvolvimento ou no bundle PyInstaller."""
+    if getattr(sys, "frozen", False):
+        # PyInstaller extrai recursos em _MEIPASS no one-file/one-dir
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent.parent
+
+
+PROJECT_ROOT = _project_root()
 CONFIG_DIR = PROJECT_ROOT / "config"
 TEMP_DIR = PROJECT_ROOT / "temp"
 OUTPUT_DIR = PROJECT_ROOT / "output"
@@ -54,6 +64,15 @@ class Settings:
     sfx_enabled: bool = True  # efeitos sonoros automáticos (whoosh/ding/…)
     voice_normalize: bool = True  # loudnorm na voz ANTES do ducking
 
+    # Fase 6 (templates): parâmetros de ritmo de edição persistidos
+    transition_type: str = "corte"
+    transition_duration: float = 0.1
+    silence_gap_s: float = 0.7
+    zoom_intensity: float = 0.10
+    zoom_spread_s: float = 6.0
+    max_zooms: int = 4
+    active_template_id: str = ""
+
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
         path = path or SETTINGS_PATH
@@ -85,6 +104,13 @@ class Settings:
             music_volume=float(data.get("music_volume", 0.25)),
             sfx_enabled=bool(data.get("sfx_enabled", True)),
             voice_normalize=bool(data.get("voice_normalize", True)),
+            transition_type=str(data.get("transition_type", "corte")),
+            transition_duration=float(data.get("transition_duration", 0.1)),
+            silence_gap_s=float(data.get("silence_gap_s", 0.7)),
+            zoom_intensity=float(data.get("zoom_intensity", 0.10)),
+            zoom_spread_s=float(data.get("zoom_spread_s", 6.0)),
+            max_zooms=int(data.get("max_zooms", 4)),
+            active_template_id=str(data.get("active_template_id", "")),
         )
 
     def save(self, path: Path | None = None) -> None:

@@ -21,7 +21,12 @@ MAX_MOMENTS = 12  # teto de segurança para saídas de LLM
 
 @dataclass
 class IllustrationMoment:
-    """Uma ilustração sobreposta à fala (linha do tempo ORIGINAL)."""
+    """Um destaque sobreposto à fala (linha do tempo ORIGINAL).
+
+    `kind` define o que será aplicado depois da revisão: `image`,
+    `callout` ou `none`. O padrão de novos momentos é call-out; arquivos
+    JSON antigos sem esse campo continuam sendo tratados como imagem.
+    """
 
     start: float
     end: float
@@ -29,6 +34,8 @@ class IllustrationMoment:
     prompt: str = ""  # descrição usada para buscar/gerar
     image_path: Optional[Path] = None  # arquivo local (None = placeholder)
     source: str = ""  # quem forneceu a imagem (id do provedor)
+    kind: str = "callout"
+    callout_text: str = ""
 
     @property
     def duration(self) -> float:
@@ -42,11 +49,16 @@ class IllustrationMoment:
             "prompt": self.prompt,
             "image_path": str(self.image_path) if self.image_path else None,
             "source": self.source,
+            "kind": self.kind,
+            "callout_text": self.callout_text,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "IllustrationMoment":
         path = data.get("image_path")
+        kind = str(data.get("kind", "image"))
+        if kind not in {"image", "callout", "none"}:
+            kind = "callout"
         return cls(
             start=float(data["start"]),
             end=float(data["end"]),
@@ -54,6 +66,8 @@ class IllustrationMoment:
             prompt=str(data.get("prompt", "")),
             image_path=Path(path) if path else None,
             source=str(data.get("source", "")),
+            kind=kind,
+            callout_text=str(data.get("callout_text", "")),
         )
 
 
@@ -88,12 +102,16 @@ def validate_illustrations(
     """
     valid: list[IllustrationMoment] = []
     for m in sorted(moments, key=lambda m: m.start)[:MAX_MOMENTS]:
+        if m.kind not in {"image", "callout", "none"}:
+            m.kind = "callout"
         if m.end <= m.start or m.start >= duration:
             continue
         m.start = max(0.0, m.start)
         m.end = min(duration, m.end)
         if not m.prompt.strip():
             m.prompt = m.text.strip()
+        if not m.callout_text.strip():
+            m.callout_text = m.text.strip() or m.prompt.strip()
         if m.end - m.start < MIN_MOMENT_S:
             m.end = min(duration, m.start + MIN_MOMENT_S)
         valid.append(m)

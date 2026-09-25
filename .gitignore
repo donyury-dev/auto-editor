@@ -9,6 +9,22 @@ output/
 logs/
 cache/
 
+# Binários grandes baixados pelos scripts de build (não versionados)
+bin/ffmpeg/*.exe
+bin/ffmpeg/*.dll
+bin/ollama/
+models/whisper/
+assets/music/*.mp3
+assets/music/*.wav
+ollama_models/
+
+# Artefatos de build/distribuição
+build/
+dist/
+*.exe
+*.zip
+*.iss~
+
 # Python
 __pycache__/
 *.py[cod]

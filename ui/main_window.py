@@ -34,6 +34,7 @@ from core.pipeline import (
     build_analysis_pipeline,
     build_render_pipeline,
 )
+from core.templates import TemplateManager, ensure_caption_preset
 from images.manager import ImageProviderManager
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,9 @@ class MainWindow(QMainWindow):
         self.settings = Settings.load()
         self.manager = ProviderManager()
         self.image_manager = ImageProviderManager()
+        self.template_manager = TemplateManager()
+        for t in self.template_manager.list_templates():
+            ensure_caption_preset(t)
         self.worker: QThread | None = None
         self._last_step: str | None = None
         self._build_ui()
@@ -165,7 +169,7 @@ class MainWindow(QMainWindow):
         root.addLayout(format_row)
 
         illus_row = QHBoxLayout()
-        illus_row.addWidget(QLabel("Ilustrações (B-roll):"))
+        illus_row.addWidget(QLabel("Fonte para destaques em imagem:"))
         self.illus_combo = QComboBox()
         for prov in self.image_manager.describe_providers():
             self.illus_combo.addItem(prov["label"], prov["id"])
@@ -174,6 +178,23 @@ class MainWindow(QMainWindow):
             self.illus_combo.setCurrentIndex(index)
         illus_row.addWidget(self.illus_combo, 1)
         root.addLayout(illus_row)
+
+        from core.templates import TemplateManager
+
+        template_row = QHBoxLayout()
+        template_row.addWidget(QLabel("Template de estilo:"))
+        self.template_label = QLabel("Padrão")
+        self.template_label.setStyleSheet("color: #666;")
+        self.template_btn = QPushButton("Escolher template…")
+        self.template_btn.clicked.connect(self._open_templates)
+        template_row.addWidget(self.template_label, 1)
+        template_row.addWidget(self.template_btn)
+        root.addLayout(template_row)
+
+        if self.settings.active_template_id:
+            active = self.template_manager.get(self.settings.active_template_id)
+            if active:
+                self.template_label.setText(active.name)
 
         self.run_btn = QPushButton("Analisar e sugerir edição")
         self.run_btn.setStyleSheet("font-size: 15px; padding: 10px;")
@@ -205,6 +226,19 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         menu = self.menuBar().addMenu("&Configurações")
         menu.addAction("Provedores de IA…", self._open_settings)
+        menu.addAction("Templates de estilo…", self._open_templates)
+
+    def _open_templates(self) -> None:
+        from ui.templates_dialog import TemplatesDialog
+
+        dialog = TemplatesDialog(
+            self.template_manager, self.settings, self
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            t = dialog.selected_template
+            if t:
+                self.template_label.setText(t.name)
+                self._log(f"Template aplicado: {t.name}")
 
     # ------------------------------------------------------------------
     # Arrastar e soltar
@@ -286,7 +320,7 @@ class MainWindow(QMainWindow):
         self.log_box.appendPlainText(
             f"> Plano: {len(ctx.edit_plan.cuts)} corte(s), "
             f"{len(ctx.edit_plan.zooms)} zoom(s), "
-            f"{len(ctx.illustrations)} ilustração(ões), "
+                f"{len(ctx.illustrations)} destaque(s), "
             f"{len(ctx.audio_plan.sfx) if ctx.audio_plan else 0} efeito(s) "
             "— aguardando sua revisão"
         )

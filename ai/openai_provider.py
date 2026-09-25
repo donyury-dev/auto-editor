@@ -1,7 +1,7 @@
-"""Provedor padrão: Claude (Anthropic Messages API).
+"""Provedor OpenAI/GPT — implementação do contrato AIProvider.
 
-Observação: a Claude não faz transcrição nem processa vídeo — ela recebe o
-texto já transcrito (pelo Whisper) e toma as decisões criativas.
+Usa a Chat Completions API. Compatível com a OpenAI oficial e com
+provedores compatíveis (ex.: Groq, DeepSeek, xAI) via URL base customizada.
 """
 
 from __future__ import annotations
@@ -16,41 +16,52 @@ from ai.models import Callout, Highlight, MusicMood, TranscriptAnalysis
 logger = logging.getLogger(__name__)
 
 
-class ClaudeProvider(AIProvider):
-    id = "claude"
-    label = "Claude (Anthropic)"
-    default_model = "claude-sonnet-4-5"
-    env_key = "ANTHROPIC_API_KEY"
-    supports_base_url = False
+_SYSTEM = (
+    "Você é um diretor de edição de vídeos virais (Reels/TikTok/Shorts). "
+    "Responda exclusivamente com JSON válido, sem markdown e sem texto extra."
+)
 
-    _SYSTEM = (
-        "Você é um diretor de edição de vídeos virais (Reels/TikTok/Shorts). "
-        "Responda exclusivamente com JSON válido, sem markdown e sem texto extra."
-    )
+
+class OpenAIProvider(AIProvider):
+    id = "openai"
+    label = "OpenAI / GPT"
+    default_model = "gpt-4o-mini"
+    env_key = "OPENAI_API_KEY"
+    supports_base_url = True
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> None:
+        super().__init__(api_key=api_key, model=model)
+        self.base_url = base_url
 
     def _client(self):
         if not self.api_key:
             raise ValueError(
-                "API key do Claude não configurada. "
+                "API key da OpenAI não configurada. "
                 "Defina-a em Configurações > Provedores de IA."
             )
-        import anthropic  # import lazy: só é necessário quando a IA é usada
+        import openai  # import lazy
 
-        return anthropic.Anthropic(api_key=self.api_key)
+        kwargs = {"api_key": self.api_key}
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        return openai.OpenAI(**kwargs)
 
     def _json(self, prompt: str) -> Union[dict, list]:
         client = self._client()
-        response = client.messages.create(
+        response = client.chat.completions.create(
             model=self.model,
-            max_tokens=1024,
-            system=self._SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            messages=[
+                {"role": "system", "content": _SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
         )
-        text = "".join(
-            block.text
-            for block in response.content
-            if getattr(block, "type", None) == "text"
-        )
+        text = response.choices[0].message.content or ""
         return self._parse_json(text)
 
     @staticmethod
@@ -85,7 +96,7 @@ class ClaudeProvider(AIProvider):
         )
         data = self._json(prompt)
         if not isinstance(data, dict):
-            raise ValueError("Resposta inesperada do Claude (esperado objeto).")
+            raise ValueError("Resposta inesperada (esperado objeto).")
         return TranscriptAnalysis(
             summary=str(data.get("summary", "")),
             tone=str(data.get("tone", "")),
@@ -115,7 +126,7 @@ class ClaudeProvider(AIProvider):
         )
         data = self._json(prompt)
         if not isinstance(data, list):
-            raise ValueError("Resposta inesperada do Claude (esperado array).")
+            raise ValueError("Resposta inesperada (esperado array).")
         return [
             Highlight(
                 text=str(item.get("text", "")),
@@ -140,9 +151,12 @@ class ClaudeProvider(AIProvider):
         )
         data = self._json(prompt)
         if not isinstance(data, list):
-            raise ValueError("Resposta inesperada do Claude (esperado array).")
+            raise ValueError("Resposta inesperada (esperado array).")
         return [
-            Callout(text=str(item.get("text", "")), emphasis=str(item.get("emphasis", "alta")))
+            Callout(
+                text=str(item.get("text", "")),
+                emphasis=str(item.get("emphasis", "alta")),
+            )
             for item in data[:max_callouts]
             if isinstance(item, dict)
         ]
@@ -164,12 +178,11 @@ class ClaudeProvider(AIProvider):
             "Sugira o clima ideal da música de fundo para esta transcrição. "
             "Retorne JSON com as chaves: mood (string), energy (0 a 1), "
             "keywords (lista de strings), suggested_bpm (inteiro)."
-            f"{rate_hint}\n\n"
-            f"Transcrição:\n{transcript_text}"
+            f"{rate_hint}\n\nTranscrição:\n{transcript_text}"
         )
         data = self._json(prompt)
         if not isinstance(data, dict):
-            raise ValueError("Resposta inesperada do Claude (esperado objeto).")
+            raise ValueError("Resposta inesperada (esperado objeto).")
         return MusicMood(
             mood=str(data.get("mood", "energético")),
             energy=float(data.get("energy", 0.7)),
@@ -199,25 +212,46 @@ class ClaudeProvider(AIProvider):
             "2. zooms: momentos de ÊNFASE para zoom punch-in (start/end em "
             "segundos, intensity entre 0.1 e 0.25). No máximo 4.\n"
             "3. transition_type: um de [corte, fade, slideleft, slideup, "
-            "circleopen, dissolve, pixelize, wipeleft] nos pontos de corte.\n"
-            "4. transition_duration: entre 0.2 e 0.5.\n\n"
+            "glitch]. Para talking head viral, prefira 'corte'.\n"
+            "4. transition_duration: entre 0.05 e 0.5 (segundos).\n\n"
             "Retorne EXATAMENTE este JSON (sem texto extra):\n"
-            '{"cuts": [{"start": 0.0, "end": 0.0, "reason": "..."}], '
+            '{"cuts": [{"start": 0.0, "end": 0.0, "reason": "silêncio"}], '
             '"zooms": [{"start": 0.0, "end": 0.0, "intensity": 0.15, '
-            '"reason": "..."}], "transition_type": "fade", '
-            '"transition_duration": 0.3}\n\n'
-            "Palavras (start-end texto):\n" + "\n".join(seg_lines) + "\n\n"
-            f"Texto completo:\n{transcript_text}"
+            '"reason": "ênfase"}], "transition_type": "corte", '
+            '"transition_duration": 0.1}\n\n'
+            "Trechos:\n"
+            + "\n".join(seg_lines)
+            + "\n\nTranscrição:\n"
+            + transcript_text
         )
         data = self._json(prompt)
         if not isinstance(data, dict):
-            raise ValueError("Resposta inesperada do Claude (esperado objeto).")
+            raise ValueError("Resposta inesperada (esperado objeto).")
         return {
-            "cuts": data.get("cuts", []),
-            "zooms": data.get("zooms", []),
-            "transition_type": str(data.get("transition_type", "fade")),
+            "cuts": [
+                {
+                    "start": float(c.get("start", 0)),
+                    "end": float(c.get("end", 0)),
+                    "reason": str(c.get("reason", "")),
+                }
+                for c in data.get("cuts", [])
+                if isinstance(c, dict)
+            ],
+            "zooms": [
+                {
+                    "start": float(z.get("start", 0)),
+                    "end": float(z.get("end", 0)),
+                    "intensity": float(z.get("intensity", 0.15)),
+                    "reason": str(z.get("reason", "")),
+                }
+                for z in data.get("zooms", [])
+                if isinstance(z, dict)
+            ],
+            "transition_type": str(
+                data.get("transition_type", "corte")
+            ),
             "transition_duration": float(
-                data.get("transition_duration", 0.3)
+                data.get("transition_duration", 0.1)
             ),
         }
 
@@ -236,12 +270,11 @@ class ClaudeProvider(AIProvider):
         ]
         prompt = (
             "Você é editor de vídeos virais. Analise a transcrição palavra a "
-            "palavra (timestamps em segundos) e sugira momentos para inserir "
-            "ilustrações (B-roll) sobre a fala.\n\n"
+            "palavra e sugira momentos para DESTAQUES visuais (call-outs de "
+            "texto ou imagens) que acompanhem a fala.\n\n"
             "Regras:\n"
-            "1. Sugira APENAS trechos visualmente concretos: lugares, "
-            "objetos, cenários, exemplos imagináveis. Frases abstratas não "
-            "viram imagem.\n"
+            "1. Só sugira quando a fala mencionar algo visualmente concreto: "
+            "lugares, objetos, conceitos, exemplos.\n"
             "2. Cada sugestão deve incluir kind='callout' por padrão e "
             "callout_text com uma palavra ou frase curta, grande e "
             "impactante. O usuário poderá trocar para imagem na revisão.\n"
@@ -256,35 +289,30 @@ class ClaudeProvider(AIProvider):
             '{"moments": [{"start": 0.0, "end": 0.0, "text": "trecho dito", '
             '"prompt": "descrição da imagem", "kind": "callout", '
             '"callout_text": "FRASE CURTA"}]}\n\n'
-            "Palavras (start-end texto):\n" + "\n".join(seg_lines) + "\n\n"
-            f"Texto completo:\n{transcript_text}"
+            "Trechos:\n"
+            + "\n".join(seg_lines)
+            + "\n\nTranscrição:\n"
+            + transcript_text
         )
         data = self._json(prompt)
-        if isinstance(data, list):  # tolerância a schema sem wrapper
-            moments = data
-        elif isinstance(data, dict):
-            moments = data.get("moments", [])
-        else:
-            moments = []
-        result = []
-        for item in moments:
-            if not isinstance(item, dict):
-                continue
-            try:
-                result.append(
-                    {
-                        "start": float(item.get("start", 0)),
-                        "end": float(item.get("end", 0)),
-                        "text": str(item.get("text", "")),
-                        "prompt": str(item.get("prompt", "")),
-                        "kind": str(item.get("kind", "callout")),
-                        "callout_text": str(
-                            item.get("callout_text", "")
-                            or item.get("text", "")
-                            or item.get("prompt", "")
-                        ),
-                    }
-                )
-            except (TypeError, ValueError):
-                continue
-        return result
+        if not isinstance(data, dict):
+            raise ValueError("Resposta inesperada (esperado objeto).")
+        moments = data.get("moments", [])
+        if not isinstance(moments, list):
+            raise ValueError("Resposta inesperada (esperado array).")
+        return [
+            {
+                "start": float(item.get("start", 0)),
+                "end": float(item.get("end", 0)),
+                "text": str(item.get("text", "")),
+                "prompt": str(item.get("prompt", "")),
+                "kind": str(item.get("kind", "callout")),
+                "callout_text": str(
+                    item.get("callout_text", "")
+                    or item.get("text", "")
+                    or item.get("prompt", "")
+                ),
+            }
+            for item in moments
+            if isinstance(item, dict)
+        ]

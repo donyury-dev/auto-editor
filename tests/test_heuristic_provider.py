@@ -78,6 +78,8 @@ def test_ilustracoes_gatilho_explicito():
     assert "praia" in m["prompt"]
     assert "uma" not in m["prompt"].split()
     assert "no" not in m["prompt"].split()
+    assert m["kind"] == "callout"
+    assert m["callout_text"] == "casa praia sunset"
 
 
 def test_ilustracoes_respeitam_densidade():
