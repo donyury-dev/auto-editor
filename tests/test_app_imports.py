@@ -13,6 +13,22 @@ import sys
 import pytest
 
 
+@pytest.fixture(scope="session")
+def qt_app():
+    """Cria uma QApplication headless para os testes de inicialização."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+    except ImportError as exc:
+        msg = str(exc).lower()
+        if "libegl" in msg or "platform plugin" in msg or "display" in msg:
+            pytest.skip(f"ambiente sem display/libEGL: {exc}")
+        raise
+    return app
+
+
 def test_main_window_imports_without_qt_module_error():
     """Se main_window importar errado (ex: QUrl de QtGui), falha aqui."""
     # Força plataforma headless para evitar erro de display em CI sem X11
@@ -28,6 +44,19 @@ def test_main_window_imports_without_qt_module_error():
         if "libegl" in msg or "platform plugin" in msg or "display" in msg:
             pytest.skip(f"ambiente sem display/libEGL: {exc}")
         raise
+
+
+def test_main_window_initializes_without_exception(qt_app):
+    """Smoke test da construção completa da janela principal."""
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    try:
+        assert window.centralWidget() is not None
+        assert window.windowTitle()
+        qt_app.processEvents()
+    finally:
+        window.close()
 
 
 def test_qurl_is_in_qtcore_not_qtgui():

@@ -26,6 +26,7 @@ class ImageProvider(ABC):
     label: ClassVar[str] = "Provedor de imagem base"
     requires_api_key: ClassVar[bool] = True
     env_key: ClassVar[str] = ""  # variável de ambiente usada como fallback
+    default_model: ClassVar[str] = ""
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key
