@@ -58,6 +58,8 @@ jobs:
         timeout-minutes: 30
 
       - name: Build do executável e instalador
+        env:
+          AUTO_EDITOR_VERSION: ${{ github.event.inputs.version || github.ref_name }}
         run: python scripts/build_executable.py
         timeout-minutes: 60
 

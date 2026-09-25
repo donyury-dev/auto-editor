@@ -8,7 +8,10 @@
 ; dist\AutoEditor\. Rode scripts\build_executable.py antes.
 
 #define MyAppName "Auto Editor"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion GetEnv("AUTO_EDITOR_VERSION")
+#if MyAppVersion == ""
+  #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "Auto Editor Project"
 #define MyAppURL "https://github.com/seu-usuario/auto-editor"
 #define MyAppExeName "AutoEditor.exe"

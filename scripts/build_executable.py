@@ -17,6 +17,7 @@ instalado (apenas para build).
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -94,10 +95,11 @@ def build_installer() -> Path | None:
             "ou o arquivo zip. Baixe o Inno Setup em https://jrsoftware.org/isinfo.php"
         )
         return None
-    logger.info("Gerando instalador com Inno Setup (%s)...", iscc)
-    run([str(iscc), str(ISS_PATH)])
-    # O nome do instalador segue o OutputBaseFilename do .iss
-    installer = PROJECT_ROOT / "dist" / "AutoEditorSetup-1.0.0.exe"
+
+    version = os.environ.get("AUTO_EDITOR_VERSION", "1.0.0")
+    logger.info("Gerando instalador com Inno Setup (%s) versão %s...", iscc, version)
+    run([str(iscc), f"/DMyAppVersion={version}", str(ISS_PATH)])
+    installer = PROJECT_ROOT / "dist" / f"AutoEditorSetup-{version}.exe"
     if installer.exists():
         logger.info("Instalador gerado: %s", installer)
         return installer
