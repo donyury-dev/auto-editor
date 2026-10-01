@@ -242,6 +242,8 @@ class MainWindow(QMainWindow):
         file_row.addWidget(self.file_edit, 1)
         file_row.addWidget(browse_btn)
         layout.addLayout(file_row)
+        # preview carrega sozinho assim que um vídeo válido é escolhido
+        self.file_edit.textChanged.connect(self._on_file_text_changed)
 
         options_row = QHBoxLayout()
         format_box = QVBoxLayout()
@@ -368,6 +370,11 @@ class MainWindow(QMainWindow):
         if not self.preview.load(path):
             self.preview.clear()
 
+    def _on_file_text_changed(self, text: str) -> None:
+        path = Path(text.strip())
+        if path.exists() and path.suffix.lower() in VIDEO_EXTENSIONS:
+            self._load_preview(path)
+
     def _browse(self) -> None:
         exts = " ".join(f"*{e}" for e in sorted(VIDEO_EXTENSIONS))
         path, _ = QFileDialog.getOpenFileName(
@@ -458,7 +465,7 @@ class MainWindow(QMainWindow):
             ctx.illustrations,
             image_fetcher,
             ctx.audio_plan,
-            tracks=self._review_tracks,
+            music_tracks=self._review_tracks,
             pack_suggestions=ctx.pack_suggestions,
             pack_manager=self.pack_manager,
             parent=self,
@@ -497,6 +504,13 @@ class MainWindow(QMainWindow):
         if step != self._last_step:
             self._log(f"> {step}")
             self._last_step = step
+        # preview acompanha a renderização em tempo real
+        if step == "Renderização" and msg.endswith("%"):
+            try:
+                pct = float(msg.rsplit(" ", 1)[-1].rstrip("%")) / 100.0
+                self.preview.seek_fraction(pct)
+            except (ValueError, IndexError):
+                pass
 
     def _on_success(self, output_path: str) -> None:
         self.progress_bar.setValue(100)

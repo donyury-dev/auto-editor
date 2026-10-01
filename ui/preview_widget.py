@@ -132,6 +132,16 @@ class LivePreviewWidget(QWidget):
             self.slider.setValue(int(seconds * 1000))
             self.slider.blockSignals(False)
 
+    def seek_fraction(self, fraction: float) -> None:
+        """Posiciona o preview em fração da duração (0.0–1.0).
+
+        Usado para acompanhar a renderização em tempo real: o frame
+        exibido corresponde ao ponto do vídeo sendo renderizado.
+        """
+        if self._cap is None or self._duration <= 0:
+            return
+        self.set_time(max(0.0, min(1.0, fraction)) * self._duration)
+
     # ------------------------------------------------------------------
 
     def _tick(self) -> None:
