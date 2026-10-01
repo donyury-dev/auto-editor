@@ -18,6 +18,11 @@ from core.templates import Template
 
 logger = logging.getLogger(__name__)
 
+try:  # embutido no bundle ou raiz do projeto
+    from config.settings import FONTS_DIR as _FONTS_DIR
+except Exception:  # pragma: no cover
+    _FONTS_DIR = Path("assets/fonts")
+
 
 # Margem horizontal mínima (em px) entre o texto e a borda do frame.
 HORIZONTAL_MARGIN = 80
@@ -30,10 +35,10 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 
 def _find_font(size: int, preferred: str = "Anton") -> ImageFont.FreeTypeFont:
     candidates = [
-        Path("assets/fonts") / f"{preferred.replace(' ', '')}-Regular.ttf",
-        Path("assets/fonts") / "Anton-Regular.ttf",
-        Path("assets/fonts") / "ArchivoBlack-Regular.ttf",
-        Path("assets/fonts") / "Poppins-ExtraBold.ttf",
+        _FONTS_DIR / f"{preferred.replace(' ', '')}-Regular.ttf",
+        _FONTS_DIR / "Anton-Regular.ttf",
+        _FONTS_DIR / "ArchivoBlack-Regular.ttf",
+        _FONTS_DIR / "Poppins-ExtraBold.ttf",
     ]
     for path in candidates:
         if path.exists():

@@ -17,6 +17,15 @@ PyInstaller.config.CONF["workpath"] = str(Path("build").resolve())
 
 block_cipher = None
 
+
+def _faster_whisper_assets() -> tuple[str, str]:
+    """Localiza os assets do faster-whisper (ex: Silero VAD)."""
+    import faster_whisper
+
+    src = Path(faster_whisper.__file__).resolve().parent / "assets"
+    return (str(src), "faster_whisper/assets")
+
+
 a = Analysis(
     ["main.py"],
     pathex=[str(Path.cwd())],
@@ -26,6 +35,7 @@ a = Analysis(
         ("config", "config"),
         ("models", "models"),
         ("bin/ffmpeg", "bin/ffmpeg"),
+        _faster_whisper_assets(),
     ],
     hiddenimports=[
         "faster_whisper",
@@ -44,7 +54,22 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "matplotlib",
+        "tkinter",
+        "sphinx",
+        "pytest",
+        "unittest",
+        "pydoc",
+        "pdb",
+        "IPython",
+        "jupyter",
+        "notebook",
+        "setuptools",
+        "wheel",
+        "pip",
+        "docutils",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

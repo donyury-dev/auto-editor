@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from dataclasses import asdict, dataclass
 from enum import Enum
@@ -21,13 +22,32 @@ def _project_root() -> Path:
 
 
 PROJECT_ROOT = _project_root()
-CONFIG_DIR = PROJECT_ROOT / "config"
-TEMP_DIR = PROJECT_ROOT / "temp"
-OUTPUT_DIR = PROJECT_ROOT / "output"
-LOGS_DIR = PROJECT_ROOT / "logs"
+
+
+def _user_data_root() -> Path:
+    """Diretório com permissão de escrita para dados do usuário.
+
+    No bundle PyInstaller a pasta de instalação pode ser somente leitura
+    (ex.: Program Files), então config/temp/output/logs/cache vivem em
+    %APPDATA%\\AutoEditor. Em desenvolvimento, segue na raiz do projeto.
+    """
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("APPDATA") or str(Path.home())
+        return Path(base) / "AutoEditor"
+    return PROJECT_ROOT
+
+
+# Recursos somente leitura embutidos no pacote
 ASSETS_DIR = PROJECT_ROOT / "assets"
 FONTS_DIR = ASSETS_DIR / "fonts"
-CACHE_DIR = PROJECT_ROOT / "cache"  # sobrevive entre sessões (ex.: imagens)
+
+# Dados graváveis do usuário (fora da pasta de instalação no bundle)
+DATA_DIR = _user_data_root()
+CONFIG_DIR = DATA_DIR / "config"
+TEMP_DIR = DATA_DIR / "temp"
+OUTPUT_DIR = DATA_DIR / "output"
+LOGS_DIR = DATA_DIR / "logs"
+CACHE_DIR = DATA_DIR / "cache"  # sobrevive entre sessões (ex.: imagens)
 PROVIDERS_CONFIG_PATH = CONFIG_DIR / "providers.json"
 SETTINGS_PATH = CONFIG_DIR / "app_settings.json"
 

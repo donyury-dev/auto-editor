@@ -446,6 +446,7 @@ class VideoProcessor:
 
     def _run_ffmpeg(self, cmd: list[str], label: str) -> None:
         """Executa um comando ffmpeg capturando erros de forma legível."""
+        cmd = [str(c) for c in cmd]
         logger.debug("ffmpeg [%s]: %s", label, " ".join(cmd))
         with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err_file:
             try:

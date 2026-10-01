@@ -65,18 +65,32 @@ class TranscriptionEngine:
         )
         from config.settings import PROJECT_ROOT
 
-        local_model_dir = PROJECT_ROOT / "models" / "whisper"
-        download_root = (
-            str(local_model_dir)
-            if local_model_dir.exists()
-            else None
-        )
-        model = WhisperModel(
-            self.model_size,
-            device=self.device,
-            compute_type=self.compute_type,
-            download_root=download_root,
-        )
+        # Modelo embutido no pacote (layout plano gerado por
+        # scripts/download_whisper_model.py): carrega direto da pasta,
+        # 100% offline e sem tentar escrever no bundle.
+        bundled_model_dir = PROJECT_ROOT / "models" / "whisper" / "small"
+        if (bundled_model_dir / "model.bin").exists():
+            logger.info("Usando modelo embutido em %s", bundled_model_dir)
+            model = WhisperModel(
+                str(bundled_model_dir),
+                device=self.device,
+                compute_type=self.compute_type,
+            )
+        else:
+            # Desenvolvimento: usa cache do Hugging Face local (download
+            # na primeira execução, depois lê do cache).
+            local_model_dir = PROJECT_ROOT / "models" / "whisper"
+            download_root = (
+                str(local_model_dir)
+                if local_model_dir.exists()
+                else None
+            )
+            model = WhisperModel(
+                self.model_size,
+                device=self.device,
+                compute_type=self.compute_type,
+                download_root=download_root,
+            )
         segments, info = model.transcribe(
             str(media_path), word_timestamps=True, vad_filter=True
         )

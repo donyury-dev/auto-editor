@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config.settings import Settings
+from config.settings import TEMP_DIR, Settings
 from core.template_preview import generate_template_preview
 from core.templates import Template, TemplateManager, apply_template
 
@@ -294,7 +294,7 @@ class TemplatesDialog(QDialog):
     def _update_preview(self) -> None:
         try:
             t = self._template_from_editor("preview", "Preview", "")
-            path = Path("temp/template_preview_current.png")
+            path = TEMP_DIR / "template_preview_current.png"
             generate_template_preview(t, path, width=540, height=960)
             pixmap = QPixmap(str(path))
             self.preview_label.setPixmap(
@@ -338,16 +338,24 @@ class TemplatesDialog(QDialog):
             self._populate_combo()
 
     def _apply_and_close(self) -> None:
-        tid = self.combo.currentData()
-        t = self.manager.get(tid)
-        if t is None:
-            return
-        # Se o usuário editou o template, usa os valores atuais do editor
-        if tid in self.manager._custom:
-            t = self._template_from_editor(tid, t.name, t.description)
-            self.manager.save_custom(t)
-        apply_template(self.settings, t)
-        self.settings.active_template_id = t.id
-        self.settings.save()
-        self.selected_template = t
-        self.accept()
+        try:
+            tid = self.combo.currentData()
+            t = self.manager.get(tid)
+            if t is None:
+                return
+            # Se o usuário editou o template, usa os valores atuais do editor
+            if tid in self.manager._custom:
+                t = self._template_from_editor(tid, t.name, t.description)
+                self.manager.save_custom(t)
+            apply_template(self.settings, t)
+            self.settings.active_template_id = t.id
+            self.settings.save()
+            self.selected_template = t
+            self.accept()
+        except Exception as exc:
+            logger.exception("Falha ao aplicar template")
+            QMessageBox.critical(
+                self,
+                "Erro ao aplicar template",
+                f"Não foi possível aplicar o template:\n{exc}",
+            )
