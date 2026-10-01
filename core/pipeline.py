@@ -760,7 +760,14 @@ class ExportStep(PipelineStep):
         assert ctx.rendered_path is not None
         progress(0.5, "salvando vídeo final…")
         ctx.output_path = Exporter().export(
-            ctx.rendered_path, ctx.input_path.stem, ctx.settings.output_format
+            ctx.rendered_path,
+            ctx.input_path.stem,
+            ctx.settings.output_format,
+            output_dir=(
+                Path(ctx.settings.output_dir)
+                if getattr(ctx.settings, "output_dir", "")
+                else None
+            ),
         )
         assert ctx.output_path is not None
         progress(1.0, f"concluído: {ctx.output_path.name}")

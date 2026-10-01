@@ -59,3 +59,15 @@ def get_ffprobe() -> Path:
             "no pacote ou instalado no sistema."
         )
     return path
+
+
+# No Windows, impede que cada chamada ffmpeg/ffprobe abra uma janela de
+# console preta. Em outros sistemas é no-op.
+CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+
+def subprocess_kwargs() -> dict:
+    """Kwargs extras para subprocess.Popen/run chamando ffmpeg/ffprobe."""
+    if sys.platform == "win32":
+        return {"creationflags": CREATE_NO_WINDOW}
+    return {}

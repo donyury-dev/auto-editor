@@ -25,7 +25,7 @@ from config.settings import (
 )
 from core.edit_plan import EditPlan
 from core.face_detection import detect_face_center
-from core.ffmpeg_path import get_ffmpeg, get_ffprobe
+from core.ffmpeg_path import get_ffmpeg, get_ffprobe, subprocess_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,11 @@ class VideoProcessor:
         ]
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=120
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                **subprocess_kwargs(),
             )
         except FileNotFoundError as exc:
             raise VideoProcessingError(
@@ -253,6 +257,7 @@ class VideoProcessor:
                     stdout=subprocess.PIPE,
                     stderr=err_file,
                     text=True,
+                    **subprocess_kwargs(),
                 )
             except FileNotFoundError as exc:
                 raise VideoProcessingError(
@@ -477,7 +482,11 @@ class VideoProcessor:
         with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err_file:
             try:
                 proc = subprocess.Popen(
-                    cmd, stdout=subprocess.DEVNULL, stderr=err_file, text=True
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=err_file,
+                    text=True,
+                    **subprocess_kwargs(),
                 )
             except FileNotFoundError as exc:
                 missing_name = Path(exc.filename).name if exc.filename else "ffmpeg"
@@ -676,6 +685,7 @@ class VideoProcessor:
                     stdout=subprocess.PIPE,
                     stderr=err_file,
                     text=True,
+                    **subprocess_kwargs(),
                 )
             except FileNotFoundError as exc:
                 raise VideoProcessingError(

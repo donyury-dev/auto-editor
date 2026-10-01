@@ -131,6 +131,7 @@ class MainWindow(QMainWindow):
             ensure_caption_preset(t)
         self.worker: QThread | None = None
         self._last_step: str | None = None
+        self._last_output_path: Path | None = None
         self._ctx: PipelineContext | None = None
         self._build_ui()
         self._build_menu()
@@ -513,6 +514,7 @@ class MainWindow(QMainWindow):
                 pass
 
     def _on_success(self, output_path: str) -> None:
+        self._last_output_path = Path(output_path)
         self.progress_bar.setValue(100)
         self.status_label.setText(f"Concluído: {output_path}")
         self.status_label.setObjectName("statusOk")
@@ -535,7 +537,12 @@ class MainWindow(QMainWindow):
         self.log_box.appendPlainText(text)
 
     def _open_output(self) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(OUTPUT_DIR)))
+        target = OUTPUT_DIR
+        if self._last_output_path is not None:
+            target = self._last_output_path.parent
+        elif self.settings.output_dir:
+            target = Path(self.settings.output_dir)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
     # ------------------------------------------------------------------
     # Fechamento

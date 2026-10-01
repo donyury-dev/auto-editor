@@ -19,10 +19,12 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from ai.provider_manager import ProviderManager
@@ -51,7 +53,20 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Configurações")
         self.setMinimumWidth(560)
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        content_widget = QWidget()
+        content_widget.setStyleSheet("QWidget { background-color: #1e1e24; }")
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(16, 14, 16, 14)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(content_widget)
+        outer.addWidget(scroll, 1)
+        self._buttons_row = QHBoxLayout()
+        self._buttons_row.setContentsMargins(16, 10, 16, 12)
         form = QFormLayout()
 
         self.provider_combo = QComboBox()
@@ -145,6 +160,27 @@ class SettingsDialog(QDialog):
         # ------------------------------------------------------------------
         from core.pack_manager import PACK_CATEGORIES
 
+        out_title = QLabel("Pasta de saída")
+        out_title.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(out_title)
+        out_row = QHBoxLayout()
+        self.output_dir_edit = QLineEdit()
+        self.output_dir_edit.setText(self.settings.output_dir or "")
+        self.output_dir_edit.setPlaceholderText(
+            "Vazio = pasta padrão do app (%APPDATA%\\AutoEditor\\output)"
+        )
+        out_browse = QPushButton("Procurar…")
+        out_browse.clicked.connect(self._browse_output_dir)
+        out_row.addWidget(self.output_dir_edit, 1)
+        out_row.addWidget(out_browse)
+        layout.addLayout(out_row)
+        out_hint = QLabel(
+            "O vídeo final é salvo nessa pasta (com data/hora no nome)."
+        )
+        out_hint.setStyleSheet("color: gray; font-size: 11px;")
+        out_hint.setWordWrap(True)
+        layout.addWidget(out_hint)
+
         pack_title = QLabel("Pack de assets (HD externo)")
         pack_title.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(pack_title)
@@ -201,13 +237,13 @@ class SettingsDialog(QDialog):
         self.pack_status.setWordWrap(True)
         layout.addWidget(self.pack_status)
 
-        buttons = QHBoxLayout()
         cancel_btn = QPushButton("Cancelar")
         save_btn = QPushButton("Salvar")
-        buttons.addStretch(1)
-        buttons.addWidget(cancel_btn)
-        buttons.addWidget(save_btn)
-        layout.addLayout(buttons)
+        save_btn.setObjectName("accent")
+        self._buttons_row.addStretch(1)
+        self._buttons_row.addWidget(cancel_btn)
+        self._buttons_row.addWidget(save_btn)
+        outer.addLayout(self._buttons_row)
 
         cancel_btn.clicked.connect(self.reject)
         save_btn.clicked.connect(self._save)
@@ -269,6 +305,13 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------------
     # Pack externo (Fase 7)
     # ------------------------------------------------------------------
+
+    def _browse_output_dir(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self, "Escolher onde salvar os vídeos finais"
+        )
+        if path:
+            self.output_dir_edit.setText(path)
 
     def _browse_pack_root(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
@@ -368,5 +411,6 @@ class SettingsDialog(QDialog):
         self.settings.music_dir = self.music_dir_edit.text().strip()
         self.settings.pack_root = self.pack_root_edit.text().strip()
         self.settings.pack_folders = self._collect_pack_folders()
+        self.settings.output_dir = self.output_dir_edit.text().strip()
         self.settings.save()
         self.accept()

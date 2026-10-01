@@ -96,6 +96,8 @@ class Settings:
     # Fase 7: pack externo de assets (HD externo, lido em runtime)
     pack_root: str = ""  # pasta raiz do pack (auto-detecta subpastas)
     pack_folders: dict = field(default_factory=dict)  # categoria → pasta
+    # Pasta onde o vídeo final é salvo (vazio = pasta padrão do app)
+    output_dir: str = ""
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
@@ -140,6 +142,7 @@ class Settings:
             active_template_id=str(data.get("active_template_id", "")),
             pack_root=str(data.get("pack_root", "")),
             pack_folders=pack_folders,
+            output_dir=str(data.get("output_dir", "")),
         )
 
     def save(self, path: Path | None = None) -> None:

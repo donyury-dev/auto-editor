@@ -1,0 +1,150 @@
+"""Timeline visual dos cortes/zooms na revisão (estilo CapCut).
+
+Desenha a linha do tempo inteira do vídeo: regiões vermelhas = cortes
+aprovados, contorno = cortes rejeitados, marcadores verdes = zooms.
+Clicar numa região seleciona a linha correspondente na tabela, para
+ajuste manual dos tempos.
+"""
+
+from __future__ import annotations
+
+from PyQt6.QtCore import QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtWidgets import QWidget
+
+
+class EditTimelineWidget(QWidget):
+    """Barra de timeline com cortes e zooms do plano."""
+
+    cutClicked = pyqtSignal(int)  # índice do corte clicado
+
+    HEIGHT = 56
+    MARGIN = 8
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._duration = 0.0
+        self._cuts: list[dict] = []  # {start, end, approved}
+        self._zooms: list[dict] = []  # {start}
+        self.setMinimumHeight(self.HEIGHT)
+        self.setMaximumHeight(self.HEIGHT)
+
+    def set_plan(self, plan) -> None:
+        self._duration = max(0.1, float(getattr(plan, "duration", 0.0) or 0.0))
+        self._cuts = [
+            {
+                "start": float(c.start),
+                "end": float(c.end),
+                "approved": bool(getattr(c, "approved", True)),
+            }
+            for c in plan.cuts
+        ]
+        self._zooms = [
+            {"start": float(z.start), "approved": bool(getattr(z, "approved", True))}
+            for z in getattr(plan, "zooms", [])
+        ]
+        self.update()
+
+    def set_cuts(self, cuts: list[dict]) -> None:
+        """Atualiza só os cortes (edição manual na tabela)."""
+        self._cuts = [dict(c) for c in cuts]
+        self.update()
+
+    def refresh_cut(self, index: int, start: float, end: float, approved: bool) -> None:
+        if 0 <= index < len(self._cuts):
+            self._cuts[index].update(
+                start=start, end=end, approved=approved
+            )
+            self.update()
+
+    # ------------------------------------------------------------------
+
+    def _time_to_x(self, t: float) -> float:
+        usable = self.width() - 2 * self.MARGIN
+        return self.MARGIN + (t / self._duration) * usable
+
+    def _x_to_time(self, x: float) -> float:
+        usable = self.width() - 2 * self.MARGIN
+        return max(0.0, min(1.0, (x - self.MARGIN) / usable)) * self._duration
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (API Qt)
+        pos = event.position()
+        t = self._x_to_time(float(pos.x()))
+        for i, cut in enumerate(self._cuts):
+            if cut["start"] <= t <= cut["end"]:
+                self.cutClicked.emit(i)
+                return
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (API Qt)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        # fundo
+        painter.setBrush(QColor("#26262e"))
+        bar = QRectF(
+            self.MARGIN, 18, self.width() - 2 * self.MARGIN, 20
+        )
+        painter.drawRect(bar)
+
+        # regiões mantidas (entre cortes) em verde escuro sutil
+        painter.setBrush(QColor("#1d3a34"))
+        cursor = 0.0
+        for cut in sorted(self._cuts, key=lambda c: c["start"]):
+            if cut["start"] > cursor:
+                painter.drawRect(
+                    QRectF(
+                        self._time_to_x(cursor), 18,
+                        self._time_to_x(cut["start"]) - self._time_to_x(cursor), 20,
+                    )
+                )
+            cursor = max(cursor, cut["end"])
+        if cursor < self._duration:
+            painter.drawRect(
+                QRectF(
+                    self._time_to_x(cursor), 18,
+                    self._time_to_x(self._duration) - self._time_to_x(cursor), 20,
+                )
+            )
+
+        # cortes (removidos): vermelho se aprovado, contorno se rejeitado
+        for cut in self._cuts:
+            rect = QRectF(
+                self._time_to_x(cut["start"]), 18,
+                max(2.0, self._time_to_x(cut["end"]) - self._time_to_x(cut["start"])),
+                20,
+            )
+            if cut["approved"]:
+                painter.setBrush(QColor("#8a3040"))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRect(rect)
+            else:
+                painter.setBrush(QColor("#3a2030"))
+                painter.setPen(QPen(QColor("#a04858"), 1))
+                painter.drawRect(rect)
+
+        # marcadores de zoom
+        painter.setPen(Qt.PenStyle.NoPen)
+        for zoom in self._zooms:
+            x = self._time_to_x(zoom["start"])
+            painter.setBrush(QColor("#0fe0cc") if zoom["approved"] else QColor("#3a5a56"))
+            painter.drawRect(QRectF(x - 1.5, 8, 3, 40))
+
+        # rótulos de tempo
+        painter.setPen(QColor("#8b8b96"))
+        painter.drawText(
+            QRectF(0, self.height() - 16, self.width(), 14),
+            Qt.AlignmentFlag.AlignLeft,
+            "0:00",
+        )
+        painter.drawText(
+            QRectF(0, self.height() - 16, self.width() - self.MARGIN, 14),
+            Qt.AlignmentFlag.AlignRight,
+            self._format(self._duration),
+        )
+        painter.end()
+
+    @staticmethod
+    def _format(seconds: float) -> str:
+        m, s = divmod(int(seconds), 60)
+        return f"{m}:{s:02d}"

@@ -80,6 +80,12 @@ class ReviewDialog(QDialog):
         # ------------------------------------------------------------------
         cuts_tab = QWidget()
         cuts_layout = QVBoxLayout(cuts_tab)
+        from ui.timeline_widget import EditTimelineWidget
+
+        self.timeline = EditTimelineWidget()
+        self.timeline.set_plan(plan)
+        self.timeline.cutClicked.connect(self._select_cut_row)
+        cuts_layout.addWidget(self.timeline)
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
             ["Tipo", "Início (s)", "Fim (s)", "Motivo", "Aprovar"]
@@ -317,7 +323,7 @@ class ReviewDialog(QDialog):
 
         checkbox = QCheckBox()
         checkbox.setChecked(True)
-        checkbox.stateChanged.connect(self._update_summary)
+        checkbox.stateChanged.connect(self._sync_timeline)
         self.table.setCellWidget(row, 4, checkbox)
 
         self._rows.append(
@@ -552,6 +558,27 @@ class ReviewDialog(QDialog):
                 checkbox = self.illus_table.cellWidget(row, 6)
                 checkbox.setChecked(True)
                 break
+
+    def _select_cut_row(self, index: int) -> None:
+        """Clique na timeline seleciona o corte na tabela p/ ajuste manual."""
+        self.tabs.setCurrentIndex(0)
+        if 0 <= index < len(self._rows):
+            self.table.selectRow(self._rows[index]["row"])
+
+    def _sync_timeline(self, *args) -> None:
+        """Reflete edições da tabela (tempos/aprovação) na timeline."""
+        cuts = []
+        for r in self._rows:
+            checkbox = self.table.cellWidget(r["row"], 4)
+            cuts.append(
+                {
+                    "start": self._read_cell_time(r["row"], 1, r["orig_start"]),
+                    "end": self._read_cell_time(r["row"], 2, r["orig_end"]),
+                    "approved": checkbox.isChecked() if checkbox else True,
+                }
+            )
+        if cuts and hasattr(self, "timeline"):
+            self.timeline.set_cuts(cuts)
 
     def _read_cell_time(self, row: int, col: int, fallback: float, table=None) -> float:
         table = table or self.table
