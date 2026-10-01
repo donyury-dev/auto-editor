@@ -1,5 +1,7 @@
 PyQt6>=6.6
-faster-whisper>=1.0.3
+faster-whisper>=1.0.3,<2
+# av 19 removeu o parâmetro metadata_errors usado pelo faster-whisper 1.x
+av>=18,<19
 anthropic>=0.40.0
 openai>=1.35.0
 keyring>=25.0.0
