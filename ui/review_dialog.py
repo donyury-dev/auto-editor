@@ -47,6 +47,8 @@ class ReviewDialog(QDialog):
         image_fetcher=None,
         audio_plan: AudioPlan | None = None,
         music_tracks=None,
+        pack_suggestions=None,
+        pack_manager=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -56,6 +58,8 @@ class ReviewDialog(QDialog):
         self._image_fetcher = image_fetcher
         self.audio_plan = audio_plan or AudioPlan()
         self._music_tracks = list(music_tracks or [])
+        self.pack_suggestions = list(pack_suggestions or [])
+        self._pack_manager = pack_manager
         self.setWindowTitle("Revisar sugestões de edição")
         self.setMinimumSize(820, 560)
 
@@ -227,6 +231,33 @@ class ReviewDialog(QDialog):
         for event in self.audio_plan.sfx:
             self._add_sfx_row(event)
 
+        # ------------------------------------------------------------------
+        # Aba 4: pack externo (overlays, SFX, LUT da Fase 7)
+        # ------------------------------------------------------------------
+        pack_tab = QWidget()
+        pack_layout = QVBoxLayout(pack_tab)
+        pack_hint = QLabel(
+            "Sugestões do seu pack externo (HD): overlay, efeito sonoro e "
+            "LUT. Troque o item sugerido pelo menu da linha; desmarque para "
+            "não usar. Nada é aplicado sem aprovação."
+        )
+        pack_hint.setWordWrap(True)
+        pack_layout.addWidget(pack_hint)
+
+        self.pack_table = QTableWidget(0, 6)
+        self.pack_table.setHorizontalHeaderLabels(
+            ["Tipo", "Item do pack", "Início (s)", "Fim (s)", "Motivo", "Aprovar"]
+        )
+        self.pack_table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Stretch
+        )
+        pack_layout.addWidget(self.pack_table, 1)
+        self.tabs.addTab(pack_tab, "Pack")
+
+        self._pack_rows: list[dict] = []
+        for s in self.pack_suggestions:
+            self._add_pack_row(s)
+
         self.summary = QLabel("")
         self.summary.setStyleSheet("font-weight: bold; padding: 4px;")
         layout.addWidget(self.summary)
@@ -351,6 +382,79 @@ class ReviewDialog(QDialog):
             {"row": row, "moment": moment, "kind_combo": kind_combo}
         )
 
+    PACK_KIND_LABELS = {
+        "overlay": "Overlay",
+        "sfx": "Efeito sonoro",
+        "lut": "LUT (cor)",
+    }
+
+    def _add_pack_row(self, suggestion) -> None:
+        from core.pack_manager import PACK_CATEGORIES
+
+        row = self.pack_table.rowCount()
+        self.pack_table.insertRow(row)
+
+        kind_item = QTableWidgetItem(
+            self.PACK_KIND_LABELS.get(suggestion.kind, suggestion.kind)
+        )
+        kind_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.pack_table.setItem(row, 0, kind_item)
+
+        combo = QComboBox()
+        if suggestion.kind == "lut":
+            combo.addItem("Nenhum", None)
+            items = (
+                self._pack_manager.luts() if self._pack_manager else []
+            )
+            for i, item in enumerate(items):
+                combo.addItem(item.name, i)
+        else:
+            items = (
+                self._pack_manager.category_items(suggestion.category)
+                if self._pack_manager
+                else []
+            )
+            for i, item in enumerate(items):
+                combo.addItem(item.name, i)
+        # seleciona o sugerido (casando pelo caminho)
+        current_index = 0
+        for i in range(combo.count()):
+            data = combo.itemData(i)
+            if data is None:
+                continue
+            candidate = items[data]
+            if str(candidate.path) == str(suggestion.path):
+                current_index = i
+                break
+        combo.setCurrentIndex(current_index)
+        combo.currentIndexChanged.connect(self._update_summary)
+        self.pack_table.setCellWidget(row, 1, combo)
+
+        for col, value in ((2, suggestion.start), (3, suggestion.end)):
+            item_widget = QTableWidgetItem(f"{value:.2f}")
+            item_widget.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
+            )
+            self.pack_table.setItem(row, col, item_widget)
+
+        category_label = PACK_CATEGORIES.get(suggestion.category, {}).get(
+            "label", suggestion.category
+        )
+        reason_item = QTableWidgetItem(
+            f"{suggestion.reason} [{category_label}]"
+            if suggestion.reason
+            else category_label
+        )
+        reason_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.pack_table.setItem(row, 4, reason_item)
+
+        checkbox = QCheckBox()
+        checkbox.setChecked(True)
+        checkbox.stateChanged.connect(self._update_summary)
+        self.pack_table.setCellWidget(row, 5, checkbox)
+
+        self._pack_rows.append({"row": row, "suggestion": suggestion})
+
     def _add_sfx_row(self, event) -> None:
         row = self.sfx_table.rowCount()
         self.sfx_table.insertRow(row)
@@ -390,15 +494,18 @@ class ReviewDialog(QDialog):
         current = self.tabs.currentIndex()
         if current == 0:
             rows, table = self._rows, self.table
+            checkbox_col = 4
         elif current == 1:
             rows, table = self._illus_rows, self.illus_table
-        else:
+            checkbox_col = 6
+        elif current == 2:
             rows, table = self._sfx_rows, self.sfx_table
+            checkbox_col = 3
+        else:
+            rows, table = self._pack_rows, self.pack_table
+            checkbox_col = 5
         for r in rows:
-            widget = table.cellWidget(
-                r["row"],
-                6 if current == 1 else (3 if current == 2 else 4),
-            )
+            widget = table.cellWidget(r["row"], checkbox_col)
             widget.setChecked(checked)
         self._update_summary()
 
@@ -552,6 +659,42 @@ class ReviewDialog(QDialog):
             )
         self.audio_plan.sfx = approved_sfx
 
+        # pack: itens aprovados com o asset escolhido no combo
+        from core.pack_manager import PackSuggestion
+
+        approved_pack: list[PackSuggestion] = []
+        for r in self._pack_rows:
+            checkbox = self.pack_table.cellWidget(r["row"], 5)
+            if not checkbox.isChecked():
+                continue
+            suggestion = r["suggestion"]
+            combo = self.pack_table.cellWidget(r["row"], 1)
+            data = combo.currentData()
+            if data is None:  # LUT "Nenhum"
+                continue
+            chosen = (
+                self._pack_manager.luts()[data]
+                if suggestion.kind == "lut"
+                else self._pack_manager.category_items(suggestion.category)[data]
+            )
+            start = self._read_cell_time(
+                r["row"], 2, suggestion.start, table=self.pack_table
+            )
+            end = self._read_cell_time(
+                r["row"], 3, suggestion.end, table=self.pack_table
+            )
+            approved_pack.append(
+                PackSuggestion(
+                    kind=suggestion.kind,
+                    path=chosen.path,
+                    category=chosen.category,
+                    start=start,
+                    end=end if end > start else suggestion.end,
+                    reason=suggestion.reason,
+                )
+            )
+        self.pack_suggestions = approved_pack
+
         self.accept()
 
     # ------------------------------------------------------------------
@@ -591,14 +734,21 @@ class ReviewDialog(QDialog):
             checkbox = self.sfx_table.cellWidget(r["row"], 3)
             if checkbox and checkbox.isChecked():
                 approved_sfx += 1
+        approved_pack = 0
+        for r in self._pack_rows:
+            checkbox = self.pack_table.cellWidget(r["row"], 5)
+            if checkbox and checkbox.isChecked():
+                combo = self.pack_table.cellWidget(r["row"], 1)
+                if combo.currentData() is not None:
+                    approved_pack += 1
         has_music = self.music_combo.currentData() is not None
 
         final = max(0.0, self.plan.duration - total_cut)
         self.summary.setText(
             f"{approved_cuts} corte(s), {approved_zooms} zoom(s), "
             f"{approved_callouts} call-out(s), {approved_images} imagem(ns), "
-            f"{approved_illus} destaque(s) e {approved_sfx} efeito(s) "
-            f"aprovados — "
+            f"{approved_illus} destaque(s), {approved_sfx} efeito(s) e "
+            f"{approved_pack} item(ns) do pack aprovados — "
             f"duração: {self.plan.duration:.1f}s → {final:.1f}s "
             f"(−{total_cut:.1f}s) • transição: "
             f"{self.transition_combo.currentText()} • "
@@ -616,3 +766,7 @@ class ReviewDialog(QDialog):
     def approved_audio(self) -> AudioPlan:
         """Plano de áudio com as escolhas aprovadas (após accept())."""
         return self.audio_plan
+
+    def approved_pack(self) -> list:
+        """Sugestões do pack aprovadas (após accept())."""
+        return self.pack_suggestions

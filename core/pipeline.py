@@ -36,6 +36,11 @@ from core.illustration_plan import (
     validate_illustrations,
 )
 from core.models import Transcript, Word
+from core.pack_manager import (
+    PackManager,
+    PackSuggestion,
+    suggestions_to_json,
+)
 from core.subtitle_engine import SubtitleEngine
 from core.transcriber import TranscriptionEngine
 from core.video_processor import VideoProcessor, resolve_target_resolution
@@ -67,6 +72,9 @@ class PipelineContext:
     illustrations: list[IllustrationMoment] = field(default_factory=list)
     # Fase 4: plano de áudio (música + SFX) — pós-revisão
     audio_plan: Optional[AudioPlan] = None
+    # Fase 7: sugestões do pack externo (pós-revisão) e LUT aprovado
+    pack_suggestions: list[PackSuggestion] = field(default_factory=list)
+    lut_path: Optional[Path] = None
 
 
 class PipelineStep(ABC):
@@ -551,6 +559,180 @@ class ApplyAudioStep(PipelineStep):
         ctx.edited_path = out
 
 
+class BuildPackSuggestionsStep(PipelineStep):
+    """Fase 7: sugere uso do pack externo (IA + heurística), para revisão.
+
+    A IA ativa (Claude/Ollama/OpenAI) recebe o índice compacto do pack;
+    a heurística local complementa casando nomes de assets com a fala.
+    Sem pack configurado (ou HD desconectado), a etapa só avisa —
+    nunca quebra.
+    """
+
+    name = "Pack"
+    weight = 0.05
+
+    def __init__(
+        self,
+        provider_manager=None,
+        pack_manager: PackManager | None = None,
+    ) -> None:
+        self._manager = provider_manager
+        self._pack = pack_manager or PackManager(Settings())
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        assert ctx.transcript is not None and ctx.audio_plan is not None
+        duration = ctx.transcript.duration or 0.0
+        if not getattr(ctx.settings, "pack_root", "") and not getattr(
+            ctx.settings, "pack_folders", {}
+        ):
+            progress(1.0, "pack externo não configurado — usando assets padrão")
+            return
+
+        progress(0.2, "indexando pack externo…")
+        index = self._pack.scan()
+        total = sum(len(v) for v in index.values())
+        if total == 0:
+            progress(
+                1.0,
+                "pack não encontrado (HD desconectado?) — assets padrão",
+            )
+            return
+        missing = self._pack.missing_categories()
+        if missing:
+            logger.warning(
+                "Categorias do pack ausentes (HD desconectado?): %s", missing
+            )
+
+        words = [
+            {"start": w.start, "end": w.end, "text": w.text}
+            for w in ctx.transcript.words
+        ]
+
+        suggestions: list[PackSuggestion] = []
+        progress(0.5, "IA analisando o pack…")
+        provider = None
+        try:
+            if self._manager is not None:
+                provider = self._manager.get_active()
+        except Exception:
+            provider = None
+        if provider is not None and duration > 0:
+            from ai.pack_suggest import build_pack_index
+
+            try:
+                raw = provider.suggest_pack_usage(
+                    ctx.transcript.text,
+                    words,
+                    duration,
+                    pack_index=build_pack_index(self._pack.all_items()),
+                    language=ctx.transcript.language,
+                )
+                suggestions = [
+                    PackSuggestion.from_dict(d)
+                    for d in raw
+                    if isinstance(d, dict)
+                ]
+            except Exception as exc:
+                logger.warning("Sugestão de pack pela IA falhou: %s", exc)
+
+        progress(0.8, "heurística local no pack…")
+        heuristic = self._pack.suggest_usages(
+            words, duration, mood=ctx.audio_plan.mood
+        )
+        seen = {str(s.path) for s in suggestions}
+        for s in heuristic:
+            if str(s.path) not in seen:
+                suggestions.append(s)
+                seen.add(str(s.path))
+
+        ctx.pack_suggestions = suggestions
+        suggestions_to_json(suggestions, ctx.work_dir / "pack_suggestions.json")
+        progress(
+            1.0,
+            f"{len(suggestions)} sugestão(ões) do pack "
+            f"({total} assets indexados) — revise na próxima tela",
+        )
+
+
+class ApplyPackStep(PipelineStep):
+    """Aplica as sugestões do pack APROVADAS: overlays, SFX e LUT.
+
+    Timestamps remapeados pelo plano de edição; itens que caírem dentro
+    de cortes são descartados. SFX do pack entram no AudioPlan e são
+    mixados pelo ApplyAudioStep.
+    """
+
+    name = "Pack"
+    weight = 0.1
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        approved = list(ctx.pack_suggestions)
+        if not approved:
+            progress(1.0, "nenhum item do pack aprovado")
+            return
+
+        plan = ctx.edit_plan
+
+        def remap(start: float, end: float):
+            if plan is not None and plan.cuts:
+                if any(c.start <= start and end <= c.end for c in plan.cuts):
+                    return None
+                return plan.remap_time(start), plan.remap_time(end)
+            return start, end
+
+        overlays = []
+        for s in approved:
+            if s.kind == "sfx":
+                continue
+            times = remap(s.start, s.end)
+            if times is None:
+                continue
+            start, end = times
+            if end - start < 0.5 and s.kind != "lut":
+                continue
+            if s.kind == "lut":
+                ctx.lut_path = s.path
+            else:
+                overlays.append(s)
+
+        # SFX do pack → AudioPlan (mixados com remapeamento no ApplyAudioStep)
+        if ctx.audio_plan is not None:
+            for s in approved:
+                if s.kind != "sfx":
+                    continue
+                times = remap(s.start, s.end)
+                if times is None:
+                    continue
+                from core.audio_plan import SfxEvent
+
+                ctx.audio_plan.sfx.append(
+                    SfxEvent(
+                        kind=f"pack:{s.path.stem}",
+                        timestamp=times[0],
+                        origin=f"pack: {s.path.name}",
+                        path=s.path,
+                    )
+                )
+
+        if not overlays:
+            progress(1.0, "pack: sem overlays a aplicar")
+            return
+
+        source = ctx.edited_path or ctx.input_path
+        processor = VideoProcessor()
+        info = processor.probe(source)
+        out = ctx.work_dir / "pack_overlaid.mp4"
+        processor.apply_overlays(
+            source,
+            overlays,
+            info,
+            ctx.settings.output_format,
+            out,
+            progress=progress,
+        )
+        ctx.edited_path = out
+
+
 class RenderStep(PipelineStep):
     name = "Renderização"
     weight = 0.4
@@ -559,12 +741,14 @@ class RenderStep(PipelineStep):
         assert ctx.ass_path is not None
         ctx.rendered_path = ctx.work_dir / "render.mp4"
         source = ctx.edited_path or ctx.input_path
+        lut = ctx.lut_path if ctx.lut_path and ctx.lut_path.exists() else None
         VideoProcessor().render(
             source,
             ctx.ass_path,
             ctx.rendered_path,
             ctx.settings.output_format,
             progress=progress,
+            lut_path=lut,
         )
 
 
@@ -677,24 +861,27 @@ def build_analysis_pipeline(
     provider_manager=None,
     image_manager=None,
     music_manager=None,
+    pack_manager=None,
 ) -> Pipeline:
-    """Análise: transcrever + planos de edição/ilustrações/áudio (revisão)."""
+    """Análise: transcrever + planos de edição/ilustrações/áudio/pack (revisão)."""
     return Pipeline(
         [
             TranscribeStep(),
             BuildEditPlanStep(provider_manager),
             BuildIllustrationPlanStep(provider_manager, image_manager),
             BuildAudioPlanStep(provider_manager, music_manager),
+            BuildPackSuggestionsStep(provider_manager, pack_manager),
         ]
     )
 
 
 def build_render_pipeline() -> Pipeline:
-    """Render: aplicar aprovados -> áudio -> legendas -> render -> export."""
+    """Render: aplicar aprovados -> pack -> áudio -> legendas -> render -> export."""
     return Pipeline(
         [
             ApplyEditsStep(),
             ApplyIllustrationsStep(),
+            ApplyPackStep(),
             ApplyAudioStep(),
             BuildSubtitlesStep(),
             RenderStep(),

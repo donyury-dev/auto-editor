@@ -15,6 +15,7 @@ import requests
 
 from ai.base_provider import AIProvider
 from ai.models import Callout, Highlight, MusicMood, TranscriptAnalysis
+from ai.pack_suggest import PackSuggestMixin
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ _SYSTEM = (
 )
 
 
-class OllamaProvider(AIProvider):
+class OllamaProvider(PackSuggestMixin, AIProvider):
     id = "ollama"
     label = "Ollama (modelo local)"
     default_model = "llama3.2"

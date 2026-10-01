@@ -12,6 +12,7 @@ from typing import Optional, Union
 
 from ai.base_provider import AIProvider
 from ai.models import Callout, Highlight, MusicMood, TranscriptAnalysis
+from ai.pack_suggest import PackSuggestMixin
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ _SYSTEM = (
 )
 
 
-class OpenAIProvider(AIProvider):
+class OpenAIProvider(PackSuggestMixin, AIProvider):
     id = "openai"
     label = "OpenAI / GPT"
     default_model = "gpt-4o-mini"

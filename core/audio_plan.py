@@ -28,17 +28,23 @@ SFX_MIN_GAP_S = 0.3  # distância mínima entre dois efeitos
 
 @dataclass
 class SfxEvent:
-    """Um efeito sonoro em um momento da linha do tempo original."""
+    """Um efeito sonoro em um momento da linha do tempo original.
+
+    `path` aponta para um arquivo do pack externo (Fase 7); quando None,
+    o efeito é sintetizado pelo sfx_engine (whoosh/ding/impact/pop).
+    """
 
     kind: str
     timestamp: float
     origin: str = ""
+    path: Optional[Path] = None
 
     def to_dict(self) -> dict:
         return {
             "kind": self.kind,
             "timestamp": round(self.timestamp, 3),
             "origin": self.origin,
+            "path": str(self.path) if self.path else None,
         }
 
 
@@ -128,7 +134,7 @@ def remap_sfx(
         else:
             ts = e.timestamp
         remapped.append(
-            SfxEvent(kind=e.kind, timestamp=ts, origin=e.origin)
+            SfxEvent(kind=e.kind, timestamp=ts, origin=e.origin, path=e.path)
         )
     return _dedupe_sfx(remapped)
 
@@ -138,7 +144,8 @@ def _dedupe_sfx(events: list[SfxEvent]) -> list[SfxEvent]:
     events = sorted(events, key=lambda e: e.timestamp)
     result: list[SfxEvent] = []
     for e in events:
-        if e.kind not in SFX_KINDS:
+        # eventos do pack têm path próprio (kind livre)
+        if e.kind not in SFX_KINDS and e.path is None:
             continue
         if result and e.timestamp - result[-1].timestamp < SFX_MIN_GAP_S:
             continue

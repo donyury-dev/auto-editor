@@ -1,8 +1,8 @@
-"""Janela principal: upload, configuração rápida, execução e progresso.
+"""Janela principal — redesign Fase 7 (estilo CapCut, leve).
 
-Fluxo da Fase 2: análise (transcrição + plano de edição em QThread) →
-tela de revisão (o usuário aprova/ajusta cada sugestão) → renderização
-final em QThread. Nada é renderizado sem revisão.
+Barra lateral com navegação por etapas + área de trabalho. Fluxo:
+vídeo → análise (QThread) → tela de revisão (obrigatória) → render
+(QThread). Nada é renderizado sem revisão.
 """
 
 from __future__ import annotations
@@ -14,7 +14,9 @@ from PyQt6.QtCore import QThread, QUrl, Qt, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,12 +25,14 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from ai.provider_manager import ProviderManager
 from config.settings import OUTPUT_DIR, OutputFormat, Settings
+from core.pack_manager import PackManager
 from core.pipeline import (
     PipelineContext,
     build_analysis_pipeline,
@@ -36,6 +40,7 @@ from core.pipeline import (
 )
 from core.templates import TemplateManager, ensure_caption_preset
 from images.manager import ImageProviderManager
+from ui.preview_widget import LivePreviewWidget
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +48,10 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
 
 class AnalysisWorker(QThread):
-    """Etapa 1: transcreve, gera o plano de edição e as ilustrações."""
+    """Etapa 1: transcreve, gera o plano de edição e as sugestões."""
 
     progress = pyqtSignal(float, str, str)
-    succeeded = pyqtSignal(object)  # PipelineContext com transcript + edit_plan
+    succeeded = pyqtSignal(object)  # PipelineContext
     failed = pyqtSignal(str)
 
     def __init__(
@@ -56,6 +61,7 @@ class AnalysisWorker(QThread):
         manager,
         image_manager,
         music_manager,
+        pack_manager,
         parent=None,
     ):
         super().__init__(parent)
@@ -64,6 +70,7 @@ class AnalysisWorker(QThread):
         self.manager = manager
         self.image_manager = image_manager
         self.music_manager = music_manager
+        self.pack_manager = pack_manager
         self.ctx: PipelineContext | None = None
 
     def run(self) -> None:
@@ -73,7 +80,10 @@ class AnalysisWorker(QThread):
             )
             self.ctx = ctx
             build_analysis_pipeline(
-                self.manager, self.image_manager, self.music_manager
+                self.manager,
+                self.image_manager,
+                self.music_manager,
+                self.pack_manager,
             ).run(
                 ctx,
                 lambda overall, step, msg: self.progress.emit(overall, step, msg),
@@ -111,15 +121,17 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Auto Editor — Edição viral com IA")
-        self.setMinimumSize(720, 560)
+        self.setMinimumSize(880, 620)
         self.settings = Settings.load()
         self.manager = ProviderManager()
         self.image_manager = ImageProviderManager()
         self.template_manager = TemplateManager()
+        self.pack_manager = PackManager(self.settings)
         for t in self.template_manager.list_templates():
             ensure_caption_preset(t)
         self.worker: QThread | None = None
         self._last_step: str | None = None
+        self._ctx: PipelineContext | None = None
         self._build_ui()
         self._build_menu()
 
@@ -130,17 +142,96 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        title = QLabel("Auto Editor — edição viral com IA")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        subtitle = QLabel(
-            "Vídeo → transcrição → sugestões da IA → sua revisão → renderização"
+        # ---- barra lateral ------------------------------------------------
+        sidebar = QFrame()
+        sidebar.setFixedWidth(190)
+        sidebar.setObjectName("sidebar")
+        side_layout = QVBoxLayout(sidebar)
+        side_layout.setContentsMargins(12, 18, 12, 12)
+        side_layout.setSpacing(4)
+
+        logo = QLabel("Auto Editor")
+        logo.setObjectName("appTitle")
+        side_layout.addWidget(logo)
+        side_layout.addSpacing(14)
+
+        self.nav_new = QPushButton("Novo vídeo")
+        self.nav_progress = QPushButton("Andamento")
+        for btn in (self.nav_new, self.nav_progress):
+            btn.setObjectName("navButton")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            side_layout.addWidget(btn)
+        self.nav_new.setChecked(True)
+
+        side_layout.addStretch(1)
+        self.template_btn = QPushButton("Template de estilo…")
+        self.template_btn.setObjectName("navButton")
+        self.template_btn.clicked.connect(self._open_templates)
+        side_layout.addWidget(self.template_btn)
+        self.settings_btn = QPushButton("Configurações")
+        self.settings_btn.setObjectName("navButton")
+        self.settings_btn.clicked.connect(self._open_settings)
+        side_layout.addWidget(self.settings_btn)
+
+        self.template_label = QLabel("")
+        self.template_label.setStyleSheet(
+            "color: #8b8b96; font-size: 11px; padding-left: 6px;"
         )
-        subtitle.setStyleSheet("color: #666;")
-        root.addWidget(title)
-        root.addWidget(subtitle)
+        side_layout.addWidget(self.template_label)
+        if self.settings.active_template_id:
+            active = self.template_manager.get(self.settings.active_template_id)
+            if active:
+                self.template_label.setText(active.name)
 
+        root.addWidget(sidebar)
+
+        # separador vertical
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setStyleSheet("color: #2e2e38;")
+        root.addWidget(line)
+
+        # ---- área de trabalho --------------------------------------------
+        self.pages = QStackedWidget()
+        root.addWidget(self.pages, 1)
+        self.pages.addWidget(self._build_new_video_page())
+        self.pages.addWidget(self._build_progress_page())
+
+        self.nav_new.clicked.connect(lambda: self._switch_page(0))
+        self.nav_progress.clicked.connect(lambda: self._switch_page(1))
+        self.setAcceptDrops(True)
+
+    def _page_title(self, text: str, subtitle: str) -> QVBoxLayout:
+        layout = QVBoxLayout()
+        title = QLabel(text)
+        title.setObjectName("appTitle")
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setObjectName("appSubtitle")
+        layout.addWidget(title)
+        layout.addWidget(subtitle_label)
+        layout.addSpacing(10)
+        return layout
+
+    def _build_new_video_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setSpacing(10)
+        layout.addLayout(
+            self._page_title(
+                "Novo vídeo",
+                "Vídeo → transcrição → sugestões da IA → sua revisão → vídeo final",
+            )
+        )
+
+        file_label = QLabel("Vídeo de origem")
+        file_label.setObjectName("sectionTitle")
+        layout.addWidget(file_label)
         file_row = QHBoxLayout()
         self.file_edit = QLineEdit()
         self.file_edit.setPlaceholderText(
@@ -150,9 +241,13 @@ class MainWindow(QMainWindow):
         browse_btn.clicked.connect(self._browse)
         file_row.addWidget(self.file_edit, 1)
         file_row.addWidget(browse_btn)
-        root.addLayout(file_row)
+        layout.addLayout(file_row)
 
-        format_row = QHBoxLayout()
+        options_row = QHBoxLayout()
+        format_box = QVBoxLayout()
+        format_label = QLabel("Formato de saída")
+        format_label.setObjectName("sectionTitle")
+        format_box.addWidget(format_label)
         self.format_combo = QComboBox()
         self.format_combo.addItem(
             "Vertical 9:16 (Reels/TikTok/Shorts)", OutputFormat.VERTICAL
@@ -164,54 +259,59 @@ class MainWindow(QMainWindow):
         index = self.format_combo.findData(self.settings.output_format)
         if index >= 0:
             self.format_combo.setCurrentIndex(index)
-        format_row.addWidget(QLabel("Formato de saída:"))
-        format_row.addWidget(self.format_combo, 1)
-        root.addLayout(format_row)
+        format_box.addWidget(self.format_combo)
+        options_row.addLayout(format_box, 1)
 
-        illus_row = QHBoxLayout()
-        illus_row.addWidget(QLabel("Fonte para destaques em imagem:"))
+        illus_box = QVBoxLayout()
+        illus_label = QLabel("Destaques em imagem")
+        illus_label.setObjectName("sectionTitle")
+        illus_box.addWidget(illus_label)
         self.illus_combo = QComboBox()
         for prov in self.image_manager.describe_providers():
             self.illus_combo.addItem(prov["label"], prov["id"])
         index = self.illus_combo.findData(self.settings.illustration_provider)
         if index >= 0:
             self.illus_combo.setCurrentIndex(index)
-        illus_row.addWidget(self.illus_combo, 1)
-        root.addLayout(illus_row)
+        illus_box.addWidget(self.illus_combo)
+        options_row.addLayout(illus_box, 1)
+        layout.addLayout(options_row)
 
-        from core.templates import TemplateManager
-
-        template_row = QHBoxLayout()
-        template_row.addWidget(QLabel("Template de estilo:"))
-        self.template_label = QLabel("Padrão")
-        self.template_label.setStyleSheet("color: #666;")
-        self.template_btn = QPushButton("Escolher template…")
-        self.template_btn.clicked.connect(self._open_templates)
-        template_row.addWidget(self.template_label, 1)
-        template_row.addWidget(self.template_btn)
-        root.addLayout(template_row)
-
-        if self.settings.active_template_id:
-            active = self.template_manager.get(self.settings.active_template_id)
-            if active:
-                self.template_label.setText(active.name)
+        preview_label = QLabel("Preview do vídeo")
+        preview_label.setObjectName("sectionTitle")
+        layout.addWidget(preview_label)
+        self.preview = LivePreviewWidget()
+        layout.addWidget(self.preview, 1)
 
         self.run_btn = QPushButton("Analisar e sugerir edição")
-        self.run_btn.setStyleSheet("font-size: 15px; padding: 10px;")
+        self.run_btn.setObjectName("accent")
+        self.run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_btn.clicked.connect(self._run)
-        root.addWidget(self.run_btn)
+        layout.addWidget(self.run_btn)
+
+        return page
+
+    def _build_progress_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setSpacing(10)
+        layout.addLayout(
+            self._page_title("Andamento", "Acompanhe a análise e a renderização")
+        )
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
-        root.addWidget(self.progress_bar)
+        layout.addWidget(self.progress_bar)
 
         self.status_label = QLabel("Pronto.")
-        root.addWidget(self.status_label)
+        layout.addWidget(self.status_label)
 
+        log_label = QLabel("Detalhes")
+        log_label.setObjectName("sectionTitle")
+        layout.addWidget(log_label)
         self.log_box = QPlainTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setMaximumHeight(220)
-        root.addWidget(self.log_box)
+        layout.addWidget(self.log_box, 1)
 
         bottom = QHBoxLayout()
         self.open_btn = QPushButton("Abrir pasta de saída")
@@ -219,9 +319,13 @@ class MainWindow(QMainWindow):
         self.open_btn.clicked.connect(self._open_output)
         bottom.addStretch(1)
         bottom.addWidget(self.open_btn)
-        root.addLayout(bottom)
+        layout.addLayout(bottom)
+        return page
 
-        self.setAcceptDrops(True)
+    def _switch_page(self, index: int) -> None:
+        self.pages.setCurrentIndex(index)
+        self.nav_new.setChecked(index == 0)
+        self.nav_progress.setChecked(index == 1)
 
     def _build_menu(self) -> None:
         menu = self.menuBar().addMenu("&Configurações")
@@ -253,11 +357,16 @@ class MainWindow(QMainWindow):
             path = Path(url.toLocalFile())
             if path.suffix.lower() in VIDEO_EXTENSIONS:
                 self.file_edit.setText(str(path))
+                self._load_preview(path)
                 break
 
     # ------------------------------------------------------------------
     # Ações
     # ------------------------------------------------------------------
+
+    def _load_preview(self, path: Path) -> None:
+        if not self.preview.load(path):
+            self.preview.clear()
 
     def _browse(self) -> None:
         exts = " ".join(f"*{e}" for e in sorted(VIDEO_EXTENSIONS))
@@ -266,12 +375,17 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.file_edit.setText(path)
+            self._load_preview(Path(path))
 
     def _open_settings(self) -> None:
         from ui.settings_dialog import SettingsDialog
 
         dialog = SettingsDialog(
-            self.manager, self.settings, self.image_manager, self
+            self.manager,
+            self.settings,
+            self.image_manager,
+            self,
+            pack_manager=self.pack_manager,
         )
         dialog.exec()
 
@@ -286,6 +400,7 @@ class MainWindow(QMainWindow):
         self.settings.output_format = self.format_combo.currentData()
         self.settings.illustration_provider = self.illus_combo.currentData()
         self.settings.save()
+        self.pack_manager = PackManager(self.settings)
 
         self.run_btn.setEnabled(False)
         self.progress_bar.setValue(0)
@@ -293,15 +408,22 @@ class MainWindow(QMainWindow):
         self._last_step = None
         self.open_btn.setVisible(False)
         self.status_label.setText("Iniciando análise…")
+        self._switch_page(1)
+        self.preview.pause()
 
         from audio.music_manager import MusicManager
 
+        music_folders = [self.settings.music_dir] if self.settings.music_dir else []
+        music_folders += [
+            str(f) for f in self.pack_manager.music_folders()
+        ]
         self.worker = AnalysisWorker(
             path,
             self.settings,
             self.manager,
             self.image_manager,
-            MusicManager([self.settings.music_dir]),
+            MusicManager(music_folders),
+            self.pack_manager,
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.succeeded.connect(self._on_analysis_done)
@@ -317,10 +439,11 @@ class MainWindow(QMainWindow):
         assert ctx.edit_plan is not None
         from ui.review_dialog import ReviewDialog
 
-        self.log_box.appendPlainText(
+        self._log(
             f"> Plano: {len(ctx.edit_plan.cuts)} corte(s), "
             f"{len(ctx.edit_plan.zooms)} zoom(s), "
-                f"{len(ctx.illustrations)} destaque(s), "
+            f"{len(ctx.illustrations)} destaque(s), "
+            f"{len(ctx.pack_suggestions)} sugestão(ões) do pack, "
             f"{len(ctx.audio_plan.sfx) if ctx.audio_plan else 0} efeito(s) "
             "— aguardando sua revisão"
         )
@@ -330,25 +453,26 @@ class MainWindow(QMainWindow):
                 self.settings.illustration_provider, prompt
             )
 
-        from audio.music_manager import MusicManager
-
-        tracks = MusicManager([self.settings.music_dir]).tracks()
         dialog = ReviewDialog(
             ctx.edit_plan,
             ctx.illustrations,
             image_fetcher,
             ctx.audio_plan,
-            tracks,
-            self,
+            tracks=self._review_tracks,
+            pack_suggestions=ctx.pack_suggestions,
+            pack_manager=self.pack_manager,
+            parent=self,
         )
         if dialog.exec() != ReviewDialog.DialogCode.Accepted:
             self.run_btn.setEnabled(True)
             self.status_label.setText("Revisão cancelada — nada foi renderizado.")
+            self._switch_page(0)
             return
 
         ctx.edit_plan = dialog.approved_plan()
         ctx.illustrations = dialog.approved_illustrations()
         ctx.audio_plan = dialog.approved_audio()
+        ctx.pack_suggestions = dialog.approved_pack()
         self.status_label.setText("Renderizando vídeo final…")
         self.progress_bar.setValue(0)
         self._last_step = None
@@ -359,17 +483,27 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self._on_failure)
         self.worker.start()
 
+    @property
+    def _review_tracks(self):
+        from audio.music_manager import MusicManager
+
+        folders = [self.settings.music_dir] if self.settings.music_dir else []
+        folders += [str(f) for f in self.pack_manager.music_folders()]
+        return MusicManager(folders).tracks()
+
     def _on_progress(self, overall: float, step: str, msg: str) -> None:
         self.progress_bar.setValue(int(overall * 100))
         self.status_label.setText(f"{step}: {msg}")
         if step != self._last_step:
-            self.log_box.appendPlainText(f"> {step}")
+            self._log(f"> {step}")
             self._last_step = step
 
     def _on_success(self, output_path: str) -> None:
         self.progress_bar.setValue(100)
         self.status_label.setText(f"Concluído: {output_path}")
-        self.log_box.appendPlainText(f"OK — vídeo exportado: {output_path}")
+        self.status_label.setObjectName("statusOk")
+        self.status_label.setStyleSheet("color: #34d1c0;")
+        self._log(f"OK — vídeo exportado: {output_path}")
         self.run_btn.setEnabled(True)
         self.open_btn.setVisible(True)
         QMessageBox.information(
@@ -379,8 +513,12 @@ class MainWindow(QMainWindow):
     def _on_failure(self, error: str) -> None:
         self.run_btn.setEnabled(True)
         self.status_label.setText("Falhou.")
-        self.log_box.appendPlainText(f"ERRO: {error}")
+        self.status_label.setStyleSheet("color: #ff6b6b;")
+        self._log(f"ERRO: {error}")
         QMessageBox.critical(self, "Erro", f"Falha no processamento:\n{error}")
+
+    def _log(self, text: str) -> None:
+        self.log_box.appendPlainText(text)
 
     def _open_output(self) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(OUTPUT_DIR)))
@@ -400,4 +538,5 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+        self.preview.stop()
         event.accept()

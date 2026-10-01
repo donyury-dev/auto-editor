@@ -36,13 +36,15 @@ class SettingsDialog(QDialog):
         settings: Settings,
         image_manager: ImageProviderManager | None = None,
         parent=None,
+        pack_manager=None,
     ) -> None:
         super().__init__(parent)
         self.manager = manager
         self.image_manager = image_manager or ImageProviderManager()
         self.settings = settings
+        self._pack_manager = pack_manager
         self.setWindowTitle("Configurações")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(560)
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -133,6 +135,67 @@ class SettingsDialog(QDialog):
         form.addRow("", music_hint)
         layout.addLayout(form)
 
+        # ------------------------------------------------------------------
+        # Pack de assets externo (Fase 7)
+        # ------------------------------------------------------------------
+        from core.pack_manager import PACK_CATEGORIES
+
+        pack_title = QLabel("Pack de assets (HD externo)")
+        pack_title.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(pack_title)
+
+        pack_root_row = QHBoxLayout()
+        self.pack_root_edit = QLineEdit()
+        self.pack_root_edit.setText(self.settings.pack_root)
+        self.pack_root_edit.setPlaceholderText(
+            "Pasta raiz do pack (ex.: E:\\Packs CapCut\\CapCut Pack) — "
+            "as categorias são detectadas pelos nomes das subpastas"
+        )
+        pack_root_browse = QPushButton("Procurar…")
+        pack_root_browse.clicked.connect(self._browse_pack_root)
+        pack_root_row.addWidget(self.pack_root_edit, 1)
+        pack_root_row.addWidget(pack_root_browse)
+        layout.addLayout(pack_root_row)
+
+        self.pack_table = QTableWidget(len(PACK_CATEGORIES), 2)
+        self.pack_table.setHorizontalHeaderLabels(["Categoria", "Pasta (opcional)"])
+        self.pack_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.pack_table.setMinimumHeight(220)
+        self._pack_row_categories: list[str] = []
+        for row, (cat_id, meta) in enumerate(PACK_CATEGORIES.items()):
+            label_item = QTableWidgetItem(meta["label"])
+            label_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self.pack_table.setItem(row, 0, label_item)
+            path_item = QTableWidgetItem(
+                (self.settings.pack_folders or {}).get(cat_id, "")
+            )
+            self.pack_table.setItem(row, 1, path_item)
+            self._pack_row_categories.append(cat_id)
+        layout.addWidget(self.pack_table)
+
+        pack_buttons = QHBoxLayout()
+        detect_btn = QPushButton("Detectar pastas pela raiz")
+        detect_btn.clicked.connect(self._detect_pack_folders)
+        browse_row_btn = QPushButton("Procurar pasta da linha selecionada…")
+        browse_row_btn.clicked.connect(self._browse_pack_row)
+        rescan_btn = QPushButton("Rescanear pack")
+        rescan_btn.clicked.connect(self._rescan_pack)
+        pack_buttons.addWidget(detect_btn)
+        pack_buttons.addWidget(browse_row_btn)
+        pack_buttons.addStretch(1)
+        pack_buttons.addWidget(rescan_btn)
+        layout.addLayout(pack_buttons)
+
+        self.pack_status = QLabel(
+            "Arquivos lidos direto do HD em tempo de execução — nada é "
+            "embutido no instalador. Sem o HD, o app usa os assets padrão."
+        )
+        self.pack_status.setStyleSheet("color: gray; font-size: 11px;")
+        self.pack_status.setWordWrap(True)
+        layout.addWidget(self.pack_status)
+
         buttons = QHBoxLayout()
         cancel_btn = QPushButton("Cancelar")
         save_btn = QPushButton("Salvar")
@@ -198,6 +261,79 @@ class SettingsDialog(QDialog):
         if path:
             self.music_dir_edit.setText(path)
 
+    # ------------------------------------------------------------------
+    # Pack externo (Fase 7)
+    # ------------------------------------------------------------------
+
+    def _browse_pack_root(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog
+
+        path = QFileDialog.getExistingDirectory(
+            self, "Escolher a pasta raiz do pack"
+        )
+        if path:
+            self.pack_root_edit.setText(path)
+            self._apply_root_and_detect(path)
+
+    def _apply_root_and_detect(self, root: str) -> None:
+        """Aplica a raiz e preenche as linhas com as pastas detectadas."""
+        temp_settings = type(self.settings)()
+        temp_settings.pack_root = root
+        from core.pack_manager import PackManager
+
+        manager = PackManager(temp_settings)
+        detected = manager.detect_categories_from_root()
+        folders = temp_settings.pack_folders or {}
+        for row, cat_id in enumerate(self._pack_row_categories):
+            if cat_id in folders:
+                self.pack_table.item(row, 1).setText(folders[cat_id])
+        self.pack_status.setText(
+            f"{detected} categoria(s) detectada(s) na raiz informada."
+        )
+
+    def _detect_pack_folders(self) -> None:
+        self._apply_root_and_detect(self.pack_root_edit.text().strip())
+
+    def _browse_pack_row(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog
+
+        row = self.pack_table.currentRow()
+        if row < 0:
+            self.pack_status.setText("Selecione uma categoria na tabela primeiro.")
+            return
+        path = QFileDialog.getExistingDirectory(
+            self,
+            f"Pasta da categoria: {self.pack_table.item(row, 0).text()}",
+        )
+        if path:
+            self.pack_table.item(row, 1).setText(path)
+
+    def _rescan_pack(self) -> None:
+        """Simula o scan com o que está na tela agora (sem salvar)."""
+        from core.pack_manager import PackManager
+
+        temp_settings = type(self.settings)()
+        temp_settings.pack_root = self.pack_root_edit.text().strip()
+        temp_settings.pack_folders = self._collect_pack_folders()
+        manager = PackManager(temp_settings)
+        index = manager.scan()
+        total = sum(len(v) for v in index.values())
+        cats = sum(1 for v in index.values() if v)
+        missing = manager.missing_categories()
+        status = f"{total} arquivo(s) em {cats} categoria(s)."
+        if missing:
+            status += f" Ausentes (HD desconectado?): {', '.join(missing)}."
+        self.pack_status.setText(status)
+
+    def _collect_pack_folders(self) -> dict:
+        folders = {}
+        for row, cat_id in enumerate(self._pack_row_categories):
+            item = self.pack_table.item(row, 1)
+            text = item.text().strip() if item else ""
+            if text:
+                folders[cat_id] = text
+        return folders
+
     def _save(self) -> None:
         pid = self.provider_combo.currentData()
         try:
@@ -225,5 +361,7 @@ class SettingsDialog(QDialog):
         self.settings.caption_vertical_position = self.position_spin.value()
         self.settings.illustration_provider = self.image_provider_combo.currentData()
         self.settings.music_dir = self.music_dir_edit.text().strip()
+        self.settings.pack_root = self.pack_root_edit.text().strip()
+        self.settings.pack_folders = self._collect_pack_folders()
         self.settings.save()
         self.accept()

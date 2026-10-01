@@ -52,6 +52,8 @@ def main() -> int:
     settings.active_template_id = template.id
     settings.output_format = OutputFormat.VERTICAL
     settings.illustration_provider = "local"
+    # Fase 7: pack externo de teste (mesma estrutura do CapCut Pack)
+    settings.pack_root = "/tmp/pack-test"
     settings.save()
 
     print(f"Aplicando template: {template.name}")
@@ -67,13 +69,21 @@ def main() -> int:
     music_manager = MusicManager([settings.music_dir])
 
     print("\n--- ANÁLISE ---")
-    build_analysis_pipeline(provider_manager, image_manager, music_manager).run(ctx, progress)
+    from core.pack_manager import PackManager
 
-    print(f"\nResultado da análise:")
+    pack_manager = PackManager(settings)
+    build_analysis_pipeline(
+        provider_manager, image_manager, music_manager, pack_manager
+    ).run(ctx, progress)
+
+    print("\nResultado da análise:")
     print(f"  Cortes: {len(ctx.edit_plan.cuts)}")
     print(f"  Zooms: {len(ctx.edit_plan.zooms)}")
     print(f"  Destaques: {len(ctx.illustrations)}")
     print(f"  Efeitos: {len(ctx.audio_plan.sfx) if ctx.audio_plan else 0}")
+    print(f"  Pack: {len(ctx.pack_suggestions)} sugestão(ões)")
+    for s in ctx.pack_suggestions:
+        print(f"    - [{s.kind}] {s.path.name} @ {s.start:.1f}s ({s.reason})")
 
     # Aprova tudo automaticamente para o teste
     print("\n--- APROVANDO TUDO ---")
@@ -83,6 +93,8 @@ def main() -> int:
         zoom.approved = True
     for ill in ctx.illustrations:
         ill.approved = True
+    for s in ctx.pack_suggestions:
+        s.approved = True
 
     print("\n--- RENDER ---")
     build_render_pipeline().run(ctx, progress)

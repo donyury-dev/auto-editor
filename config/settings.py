@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -93,6 +93,10 @@ class Settings:
     max_zooms: int = 4
     active_template_id: str = ""
 
+    # Fase 7: pack externo de assets (HD externo, lido em runtime)
+    pack_root: str = ""  # pasta raiz do pack (auto-detecta subpastas)
+    pack_folders: dict = field(default_factory=dict)  # categoria → pasta
+
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
         path = path or SETTINGS_PATH
@@ -107,6 +111,9 @@ class Settings:
             output_format = OutputFormat(data.get("output_format", "vertical"))
         except ValueError:
             output_format = OutputFormat.VERTICAL
+        pack_folders = data.get("pack_folders")
+        if not isinstance(pack_folders, dict):
+            pack_folders = {}
         return cls(
             output_format=output_format,
             whisper_model=str(data.get("whisper_model", "small")),
@@ -131,6 +138,8 @@ class Settings:
             zoom_spread_s=float(data.get("zoom_spread_s", 6.0)),
             max_zooms=int(data.get("max_zooms", 4)),
             active_template_id=str(data.get("active_template_id", "")),
+            pack_root=str(data.get("pack_root", "")),
+            pack_folders=pack_folders,
         )
 
     def save(self, path: Path | None = None) -> None:

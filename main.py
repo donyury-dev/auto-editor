@@ -64,9 +64,13 @@ def main() -> None:
 
     from PyQt6.QtWidgets import QApplication
 
-    from ui.main_window import MainWindow
+    from ui.theme import DARK_QSS
 
     app = QApplication(sys.argv)
+    app.setStyleSheet(DARK_QSS)
+
+    from ui.main_window import MainWindow
+
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

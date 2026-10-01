@@ -119,29 +119,49 @@ class VideoProcessor:
             has_audio=has_audio,
         )
 
+    @staticmethod
+    def _escape_filter_path(path: Path) -> str:
+        """Escapa um caminho para uso dentro de um filtro ffmpeg.
+
+        No Windows, o ':' da letra do drive (ex.: C:/Users/...) é
+        interpretado como separador de opções do filtro e quebra o
+        parser do filtergraph ('No option name near...'). Escapar como
+        'C\\:/Users/...' (padrão recomendado pela documentação do
+        ffmpeg para os filtros ass/subtitles).
+        """
+        return path.as_posix().replace(":", r"\:")
+
     def _ass_filter_arg(self, ass_path: Path) -> str:
-        arg = f"ass=filename='{ass_path.as_posix()}'"
+        ass = self._escape_filter_path(ass_path)
+        arg = f"ass=filename='{ass}'"
         fonts = []
         if FONTS_DIR.exists():
             fonts = sorted(FONTS_DIR.glob("*.ttf")) + sorted(FONTS_DIR.glob("*.otf"))
         if fonts:
-            arg += f":fontsdir='{FONTS_DIR.as_posix()}'"
+            arg += f":fontsdir='{self._escape_filter_path(FONTS_DIR)}'"
         return arg
 
     def _build_filter_args(
-        self, fmt: OutputFormat, info: VideoInfo, ass_arg: str
+        self,
+        fmt: OutputFormat,
+        info: VideoInfo,
+        ass_arg: str,
+        lut_file: str | None = None,
     ) -> list[str]:
         """Monta os argumentos de filtro e mapeamento de streams do ffmpeg.
+
+        `lut_file` (já escapado) aplica color grading ANTES das legendas.
 
         Importante: o vídeo é sempre mapeado explicitamente. Com qualquer
         `-map` presente, o ffmpeg desativa a seleção automática de streams —
         sem o mapa explícito, a saída sairia sem faixa de vídeo.
         """
+        lut = f"lut3d=file='{lut_file}'," if lut_file else ""
         if fmt == OutputFormat.ORIGINAL:
             # Apenas normaliza dimensões pares e queima as legendas.
             return [
                 "-vf",
-                f"scale=trunc(iw/2)*2:trunc(ih/2)*2,{ass_arg}",
+                f"{lut}scale=trunc(iw/2)*2:trunc(ih/2)*2,{ass_arg}",
                 "-map",
                 "0:v:0",
             ]
@@ -159,12 +179,12 @@ class VideoProcessor:
                 f"crop={target_w}:{target_h},boxblur=20:2[bgb];"
                 f"[fg]scale={target_w}:{target_h}"
                 ":force_original_aspect_ratio=decrease[fgs];"
-                f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,{ass_arg}[v]"
+                f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,{lut}{ass_arg}[v]"
             )
             return ["-filter_complex", filter_complex, "-map", "[v]"]
         return [
             "-vf",
-            f"scale={target_w}:{target_h}"
+            f"{lut}scale={target_w}:{target_h}"
             f":force_original_aspect_ratio=increase,"
             f"crop={target_w}:{target_h},{ass_arg}",
             "-map",
@@ -178,8 +198,13 @@ class VideoProcessor:
         output_path: Path | str,
         fmt: OutputFormat,
         progress: Optional[ProgressFn] = None,
+        lut_path: Path | str | None = None,
     ) -> Path:
-        """Renderiza o vídeo com legendas queimadas no formato escolhido."""
+        """Renderiza o vídeo com legendas queimadas no formato escolhido.
+
+        `lut_path` (opcional) aplica um LUT (.cube) do pack externo antes
+        das legendas — a cor muda, o texto permanece legível.
+        """
         input_path = Path(input_path)
         ass_path = Path(ass_path)
         output_path = Path(output_path)
@@ -187,7 +212,8 @@ class VideoProcessor:
         info = self.probe(input_path)
         target_w, target_h = resolve_target_resolution(fmt, info)
         ass_arg = self._ass_filter_arg(ass_path)
-        filter_args = self._build_filter_args(fmt, info, ass_arg)
+        lut_file = self._escape_filter_path(Path(lut_path)) if lut_path else None
+        filter_args = self._build_filter_args(fmt, info, ass_arg, lut_file=lut_file)
 
         cmd = [
             get_ffmpeg(),
@@ -802,4 +828,143 @@ class VideoProcessor:
         if progress:
             progress(1.0, f"{len(items)} ilustração(ões) aplicadas")
         logger.info("Ilustrações aplicadas: %s", output_path)
+        return output_path
+
+    # ------------------------------------------------------------------
+    # Fase 7: overlays do pack externo (vídeos/imagens com fade)
+    # ------------------------------------------------------------------
+
+    # categorias cujos assets cobrem o frame inteiro (efeitos decorativos)
+    FULLFRAME_CATEGORIES = {"overlays", "light_leaks", "backgrounds"}
+
+    @staticmethod
+    def build_overlay_chain(
+        target_w: int,
+        target_h: int,
+        items: list[dict],
+    ) -> tuple[list[str], list[str]]:
+        """Monta o filter_complex de overlays (função pura, testável).
+
+        `items`: [{"input": n, "start": s, "end": e, "full": bool}]
+        onde `input` é o índice do input ffmpeg (1-based) do asset.
+
+        Retorna (partes_do_filtro, args_de_input). Os inputs de imagem
+        vêm com placeholder "__IMGn__" para o chamador adicionar -loop 1.
+        """
+        parts: list[str] = []
+        input_args: list[str] = []
+        prev = "[0:v]"
+        fade_d = 0.25
+        for i, item in enumerate(items):
+            n = item["input"]
+            start = max(0.0, float(item["start"]))
+            end = max(start + 0.5, float(item["end"]))
+            label = f"[ov{i}]"
+            if item.get("full"):
+                scale = (
+                    f"scale={target_w}:{target_h}"
+                    ":force_original_aspect_ratio=decrease,"
+                    f"setsar=1"
+                )
+            else:
+                scale = (
+                    f"scale=-2:{int(target_h * 0.3)}"
+                    ":force_original_aspect_ratio=decrease"
+                )
+            chain = (
+                f"[{n}:v]{scale},format=rgba,"
+                f"setpts=PTS+{start:.3f}/TB,"
+                f"fade=t=in:st={start:.3f}:d={fade_d}:alpha=1,"
+                f"fade=t=out:st={max(0.0, end - fade_d):.3f}:d={fade_d}:alpha=1"
+                f"{label}"
+            )
+            parts.append(chain)
+            x = "0" if item.get("full") else "(W-w)/2"
+            y = "0" if item.get("full") else f"{int(target_h * 0.28)}"
+            parts.append(
+                f"{prev}{label}overlay={x}:{y}:"
+                f"enable='between(t,{start:.3f},{end:.3f})'"
+                f"[ovx{i}]"
+            )
+            prev = f"[ovx{i}]"
+        return parts, input_args
+
+    def apply_overlays(
+        self,
+        input_path: Path | str,
+        overlays: list,
+        info: VideoInfo,
+        fmt: OutputFormat,
+        output_path: Path | str,
+        progress: Optional[ProgressFn] = None,
+    ) -> Path:
+        """Aplica overlays do pack externo (imagem ou vídeo) com fade.
+
+        `overlays`: objetos com .path, .start, .end e .category —
+        timestamps já na linha do tempo do `input_path`.
+        """
+        input_path = Path(input_path)
+        output_path = Path(output_path)
+        target_w, target_h = resolve_target_resolution(fmt, info)
+
+        usable = [
+            o for o in overlays if Path(o.path).exists()
+        ]
+        if not usable:
+            if input_path != output_path:
+                shutil.copyfile(input_path, output_path)
+            if progress:
+                progress(1.0, "nenhum overlay do pack a aplicar")
+            return output_path
+
+        base = self._base_canvas_filter(fmt, info)
+        parts = [f"[0:v]{base}[vbase]"]
+        cmd = [
+            get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(input_path),
+        ]
+        items = []
+        image_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
+        input_idx = 1
+        for o in usable:
+            is_image = Path(o.path).suffix.lower() in image_exts
+            if is_image:
+                cmd += ["-loop", "1", "-i", str(o.path)]
+            else:
+                cmd += ["-i", str(o.path)]
+            items.append(
+                {
+                    "input": input_idx,
+                    "start": o.start,
+                    "end": o.end,
+                    "full": o.category in self.FULLFRAME_CATEGORIES,
+                }
+            )
+            input_idx += 1
+
+        chain_parts, _ = self.build_overlay_chain(target_w, target_h, items)
+        # o primeiro overlay usa [vbase] como base
+        if chain_parts:
+            first = chain_parts[1]
+            chain_parts[1] = first.replace("[0:v]", "[vbase]", 1)
+        parts += chain_parts
+        final_label = (
+            f"[ovx{len(items) - 1}]" if items else "[vbase]"
+        )
+
+        cmd += [
+            "-filter_complex", ";".join(parts),
+            "-map", final_label,
+        ]
+        if info.has_audio:
+            cmd += ["-map", "0:a:0?"]
+        cmd += [
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart", str(output_path),
+        ]
+        self._run_ffmpeg(cmd, f"{len(items)} overlay(s) do pack")
+        if progress:
+            progress(1.0, f"{len(items)} overlay(s) do pack aplicados")
+        logger.info("Overlays do pack aplicados: %s", output_path)
         return output_path

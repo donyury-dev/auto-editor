@@ -12,11 +12,12 @@ from typing import Optional, Union
 
 from ai.base_provider import AIProvider
 from ai.models import Callout, Highlight, MusicMood, TranscriptAnalysis
+from ai.pack_suggest import PackSuggestMixin
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeProvider(AIProvider):
+class ClaudeProvider(PackSuggestMixin, AIProvider):
     id = "claude"
     label = "Claude (Anthropic)"
     default_model = "claude-sonnet-4-5"

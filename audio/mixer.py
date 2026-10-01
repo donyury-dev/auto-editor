@@ -145,20 +145,20 @@ class AudioMixer:
                 progress(1.0, "áudio inalterado")
             return output_path
 
-        # efeitos: sintetiza (ou pega do cache) um WAV por tipo
-        sfx_by_kind: dict[str, Path] = {}
-        for event in events:
-            if event.kind not in sfx_by_kind:
-                sfx_by_kind[event.kind] = get_sfx(
-                    event.kind, self._sfx_cache_dir
-                )
+        # efeitos: arquivo do pack (quando o evento traz path) ou sintetizado
+        sfx_files: dict[int, Path] = {}
+        for i, event in enumerate(events):
+            if event.path is not None and Path(event.path).exists():
+                sfx_files[i] = Path(event.path)
+            else:
+                sfx_files[i] = get_sfx(event.kind, self._sfx_cache_dir)
 
         cmd = [get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video_path)]
         if plan.music_path:
             # trilha em loop (cobre vídeos maiores que a música)
             cmd += ["-stream_loop", "-1", "-i", str(plan.music_path)]
-        for event in events:
-            cmd += ["-i", str(sfx_by_kind[event.kind])]
+        for i in range(len(events)):
+            cmd += ["-i", str(sfx_files[i])]
 
         fc = build_audio_filter(
             plan,

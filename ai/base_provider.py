@@ -94,6 +94,30 @@ class AIProvider(ABC):
         O chamador é responsável por validar/sanitizar o resultado.
         """
 
+    def suggest_pack_usage(
+        self,
+        transcript_text: str,
+        segments: list[dict],
+        duration: float,
+        pack_index: Optional[list[dict]] = None,
+        language: str = "pt",
+    ) -> list[dict]:
+        """Sugere usos do pack externo (overlays, SFX, LUTs).
+
+        `pack_index` é uma lista compacta:
+        [{"category": "overlays", "name": "money rain", "path": "..."}]
+
+        Retorna uma lista de dicts no esquema de PackSuggestion.to_dict():
+        [{"kind": "overlay|sfx|lut", "path": "...", "category": "...",
+          "start": s, "end": e, "reason": "..."}]
+
+        Tudo passa pela tela de revisão — nada é aplicado direto.
+        Implementação padrão: conservadora, não sugere nada (provedores
+        devem sobrescrever). O pipeline sempre complementa com a
+        heurística local de core/pack_manager.py.
+        """
+        return []
+
     def suggest_illustration_moments(
         self,
         transcript_text: str,
