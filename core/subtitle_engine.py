@@ -86,10 +86,14 @@ class SubtitleEngine:
         style: CaptionStyle | None = None,
         max_words: int = 4,
         max_duration: float = 2.5,
+        context_lines: int = 1,
     ) -> None:
         self.style = style or CaptionStyle()
         self.max_words = max(1, max_words)
         self.max_duration = max(0.5, max_duration)
+        # Linhas de contexto visíveis acima/abaixo da linha ativa.
+        # 1 = 3 linhas na tela (anterior, atual, próxima); 0 = só a atual.
+        self.context_lines = max(0, int(context_lines))
 
     def build_chunks(self, words: list[Word]) -> list[TranscriptChunk]:
         """Agrupa palavras por quantidade, duração máxima e pontuação."""
@@ -182,6 +186,10 @@ class SubtitleEngine:
 
         chunks = self.build_chunks(transcript.words)
         lines = [header]
+        # Cores/tamanho das linhas de contexto (anterior/próxima): menores e
+        # mais discretas que a linha ativa, estilo karaokê de 3 linhas.
+        dim_fs = max(18, int(style.font_size_vertical * 0.62))
+        dim_color = rgb_to_ass("#8A8A94")
         for ci, chunk in enumerate(chunks):
             next_start = (
                 chunks[ci + 1].words[0].start
@@ -197,10 +205,27 @@ class SubtitleEngine:
                     else chunk_end
                 )
                 end = max(end, start + 0.05)
-                line = self._render_line(chunk, ki)
+                current = self._render_line(chunk, ki)
+                block = [current]
+                if self.context_lines > 0:
+                    if ci - self.context_lines >= 0:
+                        prev_txt = self._render_line(
+                            chunks[ci - self.context_lines], -1
+                        )
+                        block.insert(
+                            0, f"{{\\fs{dim_fs}\\c{dim_color}}}{prev_txt}{{\\r}}"
+                        )
+                    if ci + self.context_lines < len(chunks):
+                        next_txt = self._render_line(
+                            chunks[ci + self.context_lines], -1
+                        )
+                        block.append(
+                            f"{{\\fs{dim_fs}\\c{dim_color}}}{next_txt}{{\\r}}"
+                        )
+                text = "\\N".join(block)
                 lines.append(
                     f"Dialogue: 0,{_fmt_time(start)},{_fmt_time(end)},"
-                    f"Viral,,0,0,0,,{line}"
+                    f"Viral,,0,0,0,,{text}"
                 )
 
         out_path = Path(out_path)

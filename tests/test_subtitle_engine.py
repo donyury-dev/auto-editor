@@ -141,6 +141,31 @@ def test_pop_desativado_usa_zoom_estatico():
     assert "\\fscx0" not in line
 
 
+def test_contexto_3_linhas_no_ass(tmp_path):
+    """context_lines=1: bloco com linha anterior/próxima menores e discretas."""
+    engine = SubtitleEngine(max_words=2, max_duration=10.0, context_lines=1)
+    words = make_words()
+    transcript = Transcript(words=words)
+    out = engine.write_ass(transcript, tmp_path / "captions.ass", 1080, 1920)
+    content = out.read_text(encoding="utf-8")
+    dialogues = [
+        line for line in content.splitlines() if line.startswith("Dialogue:")
+    ]
+    # pelo menos um evento tem quebra de linha (3 linhas empilhadas)
+    assert any("\\N" in d for d in dialogues)
+    # linhas de contexto usam fonte reduzida e cor discreta
+    assert "\\fs45" in content  # 74 * 0.62
+    assert "\\c&H00948A8A" in content  # #8A8A94 em BGR
+
+
+def test_contexto_desligado_nao_empilha_linhas(tmp_path):
+    engine = SubtitleEngine(max_words=2, max_duration=10.0, context_lines=0)
+    transcript = Transcript(words=make_words())
+    out = engine.write_ass(transcript, tmp_path / "captions.ass", 1080, 1920)
+    content = out.read_text(encoding="utf-8")
+    assert "\\N" not in content
+
+
 def test_glow_opcional_na_palavra_ativa():
     from core.subtitle_engine import CaptionStyle
 

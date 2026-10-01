@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -28,6 +28,8 @@ TICK_MS = 40  # ~25 fps de atualização da simulação
 
 class LivePreviewWidget(QWidget):
     """Player mínimo: mostra frames do vídeo de origem."""
+
+    timeChanged = pyqtSignal(float)  # segundos (playback e seeks)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -127,6 +129,7 @@ class LivePreviewWidget(QWidget):
         if ok:
             self._show_frame(frame)
         self.time_label.setText(f"{seconds:.1f}s")
+        self.timeChanged.emit(seconds)
         if not self.slider.isSliderDown():
             self.slider.blockSignals(True)
             self.slider.setValue(int(seconds * 1000))
@@ -157,7 +160,9 @@ class LivePreviewWidget(QWidget):
         import cv2
 
         msec = self._cap.get(cv2.CAP_PROP_POS_MSEC)
-        self.time_label.setText(f"{msec / 1000.0:.1f}s")
+        seconds = msec / 1000.0
+        self.time_label.setText(f"{seconds:.1f}s")
+        self.timeChanged.emit(seconds)
         if not self.slider.isSliderDown():
             self.slider.blockSignals(True)
             self.slider.setValue(int(msec))

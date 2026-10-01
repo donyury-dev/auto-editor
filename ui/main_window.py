@@ -469,6 +469,7 @@ class MainWindow(QMainWindow):
             music_tracks=self._review_tracks,
             pack_suggestions=ctx.pack_suggestions,
             pack_manager=self.pack_manager,
+            video_path=ctx.input_path,
             parent=self,
         )
         if dialog.exec() != ReviewDialog.DialogCode.Accepted:
@@ -522,9 +523,42 @@ class MainWindow(QMainWindow):
         self._log(f"OK — vídeo exportado: {output_path}")
         self.run_btn.setEnabled(True)
         self.open_btn.setVisible(True)
-        QMessageBox.information(
-            self, "Pronto", f"Vídeo exportado com sucesso:\n{output_path}"
-        )
+        # fluxo "conferir antes de postar": play do vídeo final, e só
+        # depois o usuário decide abrir a pasta / postar.
+        self._show_final_review(Path(output_path))
+
+    def _show_final_review(self, output_path: Path) -> None:
+        """Diálogo com o vídeo final em play para conferência."""
+        from ui.preview_widget import LivePreviewWidget
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Conferir vídeo final")
+        dlg.resize(520, 640)
+        v = QVBoxLayout(dlg)
+        player = LivePreviewWidget()
+        v.addWidget(player, 1)
+        row = QHBoxLayout()
+        open_folder = QPushButton("Abrir pasta (extrair para postar)")
+        open_folder.setObjectName("accent")
+        close = QPushButton("Fechar")
+        row.addStretch(1)
+        row.addWidget(open_folder)
+        row.addWidget(close)
+        v.addLayout(row)
+
+        def _open() -> None:
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(output_path.parent))
+            )
+
+        open_folder.clicked.connect(_open)
+        close.clicked.connect(dlg.reject)
+        if not player.load(output_path):
+            player.clear()
+        else:
+            player.play()
+        dlg.exec()
+        player.stop()
 
     def _on_failure(self, error: str) -> None:
         self.run_btn.setEnabled(True)

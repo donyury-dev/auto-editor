@@ -125,6 +125,7 @@ class BuildSubtitlesStep(PipelineStep):
             style=style,
             max_words=ctx.settings.max_words_per_chunk,
             max_duration=ctx.settings.max_chunk_duration,
+            context_lines=ctx.settings.caption_context_lines,
         )
         ctx.ass_path = ctx.work_dir / "captions.ass"
         engine.write_ass(ctx.transcript, ctx.ass_path, target_w, target_h)

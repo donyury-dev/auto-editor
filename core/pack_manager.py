@@ -370,8 +370,8 @@ class PackManager:
         words: list[dict],
         duration: float,
         mood: str = "",
-        max_overlays: int = 6,
-        max_sfx: int = 6,
+        max_overlays: int = 2,
+        max_sfx: int = 3,
     ) -> list[PackSuggestion]:
         """Sugere overlays/elementos e SFX do pack casando nomes com a fala.
 
@@ -410,7 +410,6 @@ class PackManager:
                         if any(
                             kt == text
                             or (len(kt) >= 5 and kt in text)
-                            or (len(text) >= 4 and text in kt)
                             for kt in key_tokens
                         )
                     ),

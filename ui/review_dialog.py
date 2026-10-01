@@ -49,6 +49,7 @@ class ReviewDialog(QDialog):
         music_tracks=None,
         pack_suggestions=None,
         pack_manager=None,
+        video_path=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -60,6 +61,7 @@ class ReviewDialog(QDialog):
         self._music_tracks = list(music_tracks or [])
         self.pack_suggestions = list(pack_suggestions or [])
         self._pack_manager = pack_manager
+        self._video_path = video_path
         self.setWindowTitle("Revisar sugestões de edição")
         self.setMinimumSize(820, 560)
 
@@ -80,11 +82,26 @@ class ReviewDialog(QDialog):
         # ------------------------------------------------------------------
         cuts_tab = QWidget()
         cuts_layout = QVBoxLayout(cuts_tab)
+        from ui.preview_widget import LivePreviewWidget
         from ui.timeline_widget import EditTimelineWidget
+
+        # preview do vídeo em cima da timeline (estilo CapCut): clicar na
+        # barra busca o frame; o playhead acompanha o playback.
+        self.cut_preview = LivePreviewWidget()
+        self.cut_preview.setMaximumHeight(220)
+        cuts_layout.addWidget(self.cut_preview)
+        if self._video_path:
+            try:
+                self.cut_preview.load(self._video_path)
+            except Exception as exc:  # cv2 ausente ou arquivo ilegível
+                logger.warning("Preview dos cortes indisponível: %s", exc)
 
         self.timeline = EditTimelineWidget()
         self.timeline.set_plan(plan)
         self.timeline.cutClicked.connect(self._select_cut_row)
+        self.timeline.timeClicked.connect(self.cut_preview.pause)
+        self.timeline.timeClicked.connect(self.cut_preview.set_time)
+        self.cut_preview.timeChanged.connect(self.timeline.set_playhead)
         cuts_layout.addWidget(self.timeline)
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
@@ -244,11 +261,20 @@ class ReviewDialog(QDialog):
         pack_layout = QVBoxLayout(pack_tab)
         pack_hint = QLabel(
             "Sugestões do seu pack externo (HD): overlay, efeito sonoro e "
-            "LUT. Troque o item sugerido pelo menu da linha; desmarque para "
-            "não usar. Nada é aplicado sem aprovação."
+            "LUT. Tudo começa DESMARCADO — veja o preview do item, marque "
+            "só o que combinar com o vídeo e troque pelo menu da linha. "
+            "Nada é aplicado sem aprovação."
         )
         pack_hint.setWordWrap(True)
         pack_layout.addWidget(pack_hint)
+
+        self.pack_preview = QLabel("Selecione um item abaixo para pré-visualizar")
+        self.pack_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pack_preview.setFixedHeight(110)
+        self.pack_preview.setStyleSheet(
+            "background-color: #121216; border-radius: 8px; color: #666;"
+        )
+        pack_layout.addWidget(self.pack_preview)
 
         self.pack_table = QTableWidget(0, 6)
         self.pack_table.setHorizontalHeaderLabels(
@@ -434,6 +460,9 @@ class ReviewDialog(QDialog):
                 break
         combo.setCurrentIndex(current_index)
         combo.currentIndexChanged.connect(self._update_summary)
+        combo.currentIndexChanged.connect(
+            lambda _ix, r=row: self._update_pack_preview(r)
+        )
         self.pack_table.setCellWidget(row, 1, combo)
 
         for col, value in ((2, suggestion.start), (3, suggestion.end)):
@@ -455,11 +484,81 @@ class ReviewDialog(QDialog):
         self.pack_table.setItem(row, 4, reason_item)
 
         checkbox = QCheckBox()
-        checkbox.setChecked(True)
+        # conservador: começa desmarcado — o usuário vê o preview e decide
+        checkbox.setChecked(False)
         checkbox.stateChanged.connect(self._update_summary)
         self.pack_table.setCellWidget(row, 5, checkbox)
 
         self._pack_rows.append({"row": row, "suggestion": suggestion})
+
+    def _pack_item_for_row(self, row: int):
+        """Asset atualmente selecionado no combo da linha (ou None)."""
+        if not (0 <= row < len(self._pack_rows)):
+            return None
+        suggestion = self._pack_rows[row]["suggestion"]
+        combo = self.pack_table.cellWidget(row, 1)
+        if combo is None:
+            return None
+        data = combo.currentData()
+        if data is None:
+            return None
+        try:
+            if suggestion.kind == "lut":
+                return self._pack_manager.luts()[data]
+            return self._pack_manager.category_items(suggestion.category)[data]
+        except (IndexError, AttributeError, TypeError):
+            return None
+
+    def _update_pack_preview(self, row: int) -> None:
+        """Mostra o primeiro frame do item selecionado (vídeo/imagem)."""
+        item = self._pack_item_for_row(row)
+        if item is None:
+            self.pack_preview.clear()
+            self.pack_preview.setText(
+                "Selecione um item abaixo para pré-visualizar"
+            )
+            return
+        pixmap = self._first_frame_pixmap(item.path)
+        if pixmap is None:
+            self.pack_preview.clear()
+            self.pack_preview.setText(
+                f"Sem preview visual ({item.path.suffix.lower() or 'arquivo'})"
+            )
+            return
+        self.pack_preview.setPixmap(
+            pixmap.scaled(
+                self.pack_preview.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+
+    @staticmethod
+    def _first_frame_pixmap(path):
+        """Primeiro frame de vídeo/imagem via OpenCV (None se falhar)."""
+        import cv2
+        from PyQt6.QtGui import QImage
+
+        try:
+            cap = cv2.VideoCapture(str(path))
+            ok = False
+            frame = None
+            if cap.isOpened():
+                ok, frame = cap.read()
+            cap.release()
+            if not ok or frame is None:
+                return None
+            height, width, channels = frame.shape
+            image = QImage(
+                frame.data,
+                width,
+                height,
+                channels * width,
+                QImage.Format.Format_BGR888,
+            )
+            return QPixmap.fromImage(image)
+        except Exception:
+            return None
 
     def _add_sfx_row(self, event) -> None:
         row = self.sfx_table.rowCount()

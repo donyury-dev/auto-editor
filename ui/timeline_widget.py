@@ -17,6 +17,7 @@ class EditTimelineWidget(QWidget):
     """Barra de timeline com cortes e zooms do plano."""
 
     cutClicked = pyqtSignal(int)  # índice do corte clicado
+    timeClicked = pyqtSignal(float)  # tempo (s) clicado na barra
 
     HEIGHT = 56
     MARGIN = 8
@@ -26,6 +27,7 @@ class EditTimelineWidget(QWidget):
         self._duration = 0.0
         self._cuts: list[dict] = []  # {start, end, approved}
         self._zooms: list[dict] = []  # {start}
+        self._playhead: float | None = None
         self.setMinimumHeight(self.HEIGHT)
         self.setMaximumHeight(self.HEIGHT)
 
@@ -50,6 +52,11 @@ class EditTimelineWidget(QWidget):
         self._cuts = [dict(c) for c in cuts]
         self.update()
 
+    def set_playhead(self, seconds: float) -> None:
+        """Move o cursor de tempo (sincronizado com o preview de vídeo)."""
+        self._playhead = max(0.0, min(seconds, self._duration))
+        self.update()
+
     def refresh_cut(self, index: int, start: float, end: float, approved: bool) -> None:
         if 0 <= index < len(self._cuts):
             self._cuts[index].update(
@@ -70,6 +77,7 @@ class EditTimelineWidget(QWidget):
     def mousePressEvent(self, event) -> None:  # noqa: N802 (API Qt)
         pos = event.position()
         t = self._x_to_time(float(pos.x()))
+        self.timeClicked.emit(t)
         for i, cut in enumerate(self._cuts):
             if cut["start"] <= t <= cut["end"]:
                 self.cutClicked.emit(i)
@@ -129,6 +137,14 @@ class EditTimelineWidget(QWidget):
             x = self._time_to_x(zoom["start"])
             painter.setBrush(QColor("#0fe0cc") if zoom["approved"] else QColor("#3a5a56"))
             painter.drawRect(QRectF(x - 1.5, 8, 3, 40))
+
+        # playhead (sincronizado com o preview)
+        if self._playhead is not None:
+            x = self._time_to_x(self._playhead)
+            painter.setPen(QPen(QColor("#ffffff"), 2))
+            painter.drawLine(
+                int(x), 10, int(x), self.height() - 18
+            )
 
         # rótulos de tempo
         painter.setPen(QColor("#8b8b96"))
