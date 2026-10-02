@@ -8,8 +8,8 @@ ajuste manual dos tempos.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 
@@ -18,9 +18,11 @@ class EditTimelineWidget(QWidget):
 
     cutClicked = pyqtSignal(int)  # índice do corte clicado
     timeClicked = pyqtSignal(float)  # tempo (s) clicado na barra
+    cutChanged = pyqtSignal(int, float, float)  # índice, start, end
 
     HEIGHT = 56
     MARGIN = 8
+    HANDLE_W = 6
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -30,8 +32,14 @@ class EditTimelineWidget(QWidget):
         self._playhead: float | None = None
         self._final_view = False
         self._final_duration = 0.0
+        self._drag_index: int | None = None
+        self._drag_edge: str | None = None  # 'left'/'right'/'move'
+        self._drag_start_x = 0.0
+        self._drag_orig_start = 0.0
+        self._drag_orig_end = 0.0
         self.setMinimumHeight(self.HEIGHT)
         self.setMaximumHeight(self.HEIGHT)
+        self.setMouseTracking(True)
 
     def set_plan(self, plan) -> None:
         self._duration = max(0.1, float(getattr(plan, "duration", 0.0) or 0.0))
@@ -90,14 +98,75 @@ class EditTimelineWidget(QWidget):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 (API Qt)
         pos = event.position()
-        t = self._x_to_time(float(pos.x()))
+        x = float(pos.x())
+        t = self._x_to_time(x)
         self.timeClicked.emit(t)
         if self._final_view:
             return
         for i, cut in enumerate(self._cuts):
-            if cut["start"] <= t <= cut["end"]:
-                self.cutClicked.emit(i)
-                return
+            x1 = self._time_to_x(cut["start"])
+            x2 = self._time_to_x(cut["end"])
+            if not (x1 <= x <= x2):
+                continue
+            self.cutClicked.emit(i)
+            if abs(x - x1) <= self.HANDLE_W:
+                self._drag_edge = "left"
+            elif abs(x - x2) <= self.HANDLE_W:
+                self._drag_edge = "right"
+            else:
+                self._drag_edge = "move"
+            self._drag_index = i
+            self._drag_start_x = x
+            self._drag_orig_start = cut["start"]
+            self._drag_orig_end = cut["end"]
+            self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+            return
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802 (API Qt)
+        if self._final_view:
+            return
+        x = float(event.position().x())
+        t = self._x_to_time(x)
+        if self._drag_index is not None:
+            dt = t - self._x_to_time(self._drag_start_x)
+            i = self._drag_index
+            orig_s = self._drag_orig_start
+            orig_e = self._drag_orig_end
+            if self._drag_edge == "left":
+                self._cuts[i]["start"] = max(0.0, min(orig_e - 0.2, orig_s + dt))
+            elif self._drag_edge == "right":
+                self._cuts[i]["end"] = min(
+                    self._duration, max(orig_s + 0.2, orig_e + dt)
+                )
+            elif self._drag_edge == "move":
+                span = orig_e - orig_s
+                new_s = max(0.0, min(self._duration - span, orig_s + dt))
+                self._cuts[i]["start"] = new_s
+                self._cuts[i]["end"] = new_s + span
+            self.update()
+            self.cutChanged.emit(
+                i, self._cuts[i]["start"], self._cuts[i]["end"]
+            )
+            return
+        # cursor de resize
+        over_handle = False
+        for cut in self._cuts:
+            x1 = self._time_to_x(cut["start"])
+            x2 = self._time_to_x(cut["end"])
+            if x1 - self.HANDLE_W <= x <= x1 + self.HANDLE_W or \
+               x2 - self.HANDLE_W <= x <= x2 + self.HANDLE_W:
+                over_handle = True
+                break
+        self.setCursor(
+            QCursor(Qt.CursorShape.SizeHorCursor if over_handle else Qt.CursorShape.ArrowCursor)
+        )
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (API Qt)
+        if self._drag_index is not None:
+            self._drag_index = None
+            self._drag_edge = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.cutChanged.emit(-1, 0.0, 0.0)
 
     def paintEvent(self, event) -> None:  # noqa: N802 (API Qt)
         painter = QPainter(self)

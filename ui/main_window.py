@@ -443,9 +443,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_analysis_done(self, ctx: PipelineContext) -> None:
-        """Análise concluída: abre o editor de timeline (obrigatório)."""
+        """Análise concluída: abre a tela de revisão simplificada."""
         assert ctx.edit_plan is not None
-        from ui.timeline_editor import TimelineEditor
+        from ui.review_dialog import ReviewDialog
 
         self._log(
             f"> Plano: {len(ctx.edit_plan.cuts)} corte(s), "
@@ -453,19 +453,21 @@ class MainWindow(QMainWindow):
             f"{len(ctx.illustrations)} destaque(s), "
             f"{len(ctx.pack_suggestions)} sugestão(ões) do pack, "
             f"{len(ctx.audio_plan.sfx) if ctx.audio_plan else 0} efeito(s) "
-            "— abrindo editor de timeline"
+            "— abrindo revisão"
         )
 
-        dialog = TimelineEditor(
+        dialog = ReviewDialog(
             ctx.edit_plan,
             ctx.illustrations,
+            None,
             ctx.audio_plan,
+            self._review_tracks,
             ctx.pack_suggestions,
             self.pack_manager,
             ctx.input_path,
             parent=self,
         )
-        if dialog.exec() != TimelineEditor.DialogCode.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             self.run_btn.setEnabled(True)
             self.status_label.setText("Edição cancelada — nada foi renderizado.")
             self._switch_page(0)
