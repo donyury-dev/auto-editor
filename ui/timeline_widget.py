@@ -28,6 +28,8 @@ class EditTimelineWidget(QWidget):
         self._cuts: list[dict] = []  # {start, end, approved}
         self._zooms: list[dict] = []  # {start}
         self._playhead: float | None = None
+        self._final_view = False
+        self._final_duration = 0.0
         self.setMinimumHeight(self.HEIGHT)
         self.setMaximumHeight(self.HEIGHT)
 
@@ -54,7 +56,17 @@ class EditTimelineWidget(QWidget):
 
     def set_playhead(self, seconds: float) -> None:
         """Move o cursor de tempo (sincronizado com o preview de vídeo)."""
-        self._playhead = max(0.0, min(seconds, self._duration))
+        limit = self._final_duration if self._final_view else self._duration
+        self._playhead = max(0.0, min(seconds, limit))
+        self.update()
+
+    def set_final_view(self, enabled: bool, final_duration: float = 0.0) -> None:
+        """Modo 'vídeo final': trechos cortados desaparecem da barra.
+
+        Nesse modo os tempos clicados/exibidos são do vídeo final.
+        """
+        self._final_view = bool(enabled)
+        self._final_duration = max(0.1, final_duration or self._duration)
         self.update()
 
     def refresh_cut(self, index: int, start: float, end: float, approved: bool) -> None:
@@ -67,17 +79,21 @@ class EditTimelineWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _time_to_x(self, t: float) -> float:
+        duration = self._final_duration if self._final_view else self._duration
         usable = self.width() - 2 * self.MARGIN
-        return self.MARGIN + (t / self._duration) * usable
+        return self.MARGIN + (t / max(0.1, duration)) * usable
 
     def _x_to_time(self, x: float) -> float:
+        duration = self._final_duration if self._final_view else self._duration
         usable = self.width() - 2 * self.MARGIN
-        return max(0.0, min(1.0, (x - self.MARGIN) / usable)) * self._duration
+        return max(0.0, min(1.0, (x - self.MARGIN) / usable)) * duration
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 (API Qt)
         pos = event.position()
         t = self._x_to_time(float(pos.x()))
         self.timeClicked.emit(t)
+        if self._final_view:
+            return
         for i, cut in enumerate(self._cuts):
             if cut["start"] <= t <= cut["end"]:
                 self.cutClicked.emit(i)
@@ -94,6 +110,13 @@ class EditTimelineWidget(QWidget):
             self.MARGIN, 18, self.width() - 2 * self.MARGIN, 20
         )
         painter.drawRect(bar)
+
+        if self._final_view:
+            # vídeo final: uma faixa contínua — o que foi cortado sumiu
+            painter.setBrush(QColor("#1d3a34"))
+            painter.drawRect(bar)
+            self._draw_playhead_and_labels(painter)
+            return
 
         # regiões mantidas (entre cortes) em verde escuro sutil
         painter.setBrush(QColor("#1d3a34"))
@@ -138,6 +161,9 @@ class EditTimelineWidget(QWidget):
             painter.setBrush(QColor("#0fe0cc") if zoom["approved"] else QColor("#3a5a56"))
             painter.drawRect(QRectF(x - 1.5, 8, 3, 40))
 
+        self._draw_playhead_and_labels(painter)
+
+    def _draw_playhead_and_labels(self, painter: QPainter) -> None:
         # playhead (sincronizado com o preview)
         if self._playhead is not None:
             x = self._time_to_x(self._playhead)
@@ -156,7 +182,9 @@ class EditTimelineWidget(QWidget):
         painter.drawText(
             QRectF(0, self.height() - 16, self.width() - self.MARGIN, 14),
             Qt.AlignmentFlag.AlignRight,
-            self._format(self._duration),
+            self._format(
+                self._final_duration if self._final_view else self._duration
+            ),
         )
         painter.end()
 
