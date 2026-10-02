@@ -123,74 +123,48 @@ def test_simulacao_desligada_nao_altera_tempo(qt_app, tiny_video):
 # ----------------------------------------------------------------------
 
 
-def _build_dialog(qt_app, tiny_video):
+def _build_editor(qt_app, tiny_video):
     from core.edit_plan import EditPlan
-    from ui.review_dialog import ReviewDialog
+    from ui.timeline_editor import TimelineEditor
 
     plan = EditPlan(duration=3.0)
-    return ReviewDialog(plan, video_path=tiny_video)
+    return TimelineEditor(plan, [], None, [], None, tiny_video)
 
 
-def test_review_dialog_adiciona_e_remove_corte(qt_app, tiny_video):
-    dialog = _build_dialog(qt_app, tiny_video)
-    n0 = len(dialog._rows)
-    dialog.preview.set_source_time(0.5)
-    dialog._add_cut_at_playhead()
-    assert len(dialog._rows) == n0 + 1
-    novo = dialog._rows[-1]
-    assert novo["tag"] == "cut" and novo["approved"]
-    assert novo["start"] == pytest.approx(0.5, abs=0.15)
-    assert dialog.table.rowCount() == len(dialog._rows)
+def test_timeline_editor_adiciona_clipe(qt_app, tiny_video):
+    editor = _build_editor(qt_app, tiny_video)
+    video_track = editor.timeline.track_by_type("video")
+    n0 = len(video_track.clips)
+    editor.preview.set_source_time(0.5)
+    # adiciona clipe de vídeo manualmente na faixa principal
+    from core.timeline_model import Clip
 
-    dialog.table.selectRow(len(dialog._rows) - 1)
-    dialog._remove_selected_cut()
-    assert len(dialog._rows) == n0
-
-
-def test_edicao_de_tempo_na_tabela_propaga(qt_app, tiny_video):
-    dialog = _build_dialog(qt_app, tiny_video)
-    n_before = dialog.preview.display_duration()
-    dialog._rows.append(
-        {
-            "tag": "cut",
-            "start": 0.3,
-            "end": 0.9,
-            "reason": "teste",
-            "approved": True,
-            "original": None,
-        }
+    video_track.add_clip(
+        Clip(kind="video", start=0.5, end=2.0, source_path=tiny_video)
     )
-    dialog._sync_timeline()
-    assert dialog.preview.display_duration() == pytest.approx(2.4, abs=0.3)
-    assert n_before == pytest.approx(3.0, abs=0.2)
+    assert len(video_track.clips) == n0 + 1
 
 
-def test_checkbox_desmarcado_mantem_trecho_no_final(qt_app, tiny_video):
-    dialog = _build_dialog(qt_app, tiny_video)
-    dialog._rows.append(
-        {
-            "tag": "cut",
-            "start": 0.5,
-            "end": 1.5,
-            "reason": "teste",
-            "approved": False,
-            "original": None,
-        }
+def test_clipe_na_timeline_reflete_duracao(qt_app, tiny_video):
+    from core.timeline_model import Clip
+
+    editor = _build_editor(qt_app, tiny_video)
+    editor.timeline.track_by_type("video").add_clip(
+        Clip(kind="video", start=0.3, end=0.9, source_path=tiny_video)
     )
-    dialog._apply_cut_simulation()
-    # corte rejeitado: duração final permanece a do vídeo original
-    assert dialog.preview.display_duration() == pytest.approx(3.0, abs=0.2)
+    # a presença do clipe indica que esse trecho é mantido
+    assert editor.preview.display_duration() == pytest.approx(3.0, abs=0.2)
 
 
-def test_timeline_modo_final_desenha(qt_app, tiny_video):
-    from ui.timeline_widget import EditTimelineWidget
+def test_timeline_view_pinta(qt_app, tiny_video):
+    from core.timeline_model import Timeline, Track, Clip
+    from ui.timeline_view import TimelineView
 
-    widget = EditTimelineWidget()
-    widget.set_cuts([{"start": 0.5, "end": 1.0, "approved": True}])
-    widget.set_final_view(True, 2.5)
+    timeline = Timeline(duration=3.0)
+    track = timeline.ensure_track("video")
+    track.add_clip(Clip(kind="video", start=0.0, end=3.0, source_path=tiny_video))
+    widget = TimelineView(timeline)
+    widget.set_zoom(1.0)
     widget.set_playhead(1.2)
-    from PyQt6.QtGui import QPixmap
-
-    widget.resize(300, 56)
     widget.grab()  # força paintEvent sem erro
     assert True

@@ -49,15 +49,18 @@ def test_settings_dialog_opens_with_pack_table(qt_app, tmp_path):
     dialog.accept()
 
 
-def test_review_dialog_accepts_music_tracks_kwarg(qt_app):
+def test_timeline_editor_accepts_expected_kwargs(qt_app):
     import inspect
 
-    from ui.review_dialog import ReviewDialog
+    from ui.timeline_editor import TimelineEditor
 
-    sig = inspect.signature(ReviewDialog.__init__)
-    assert "music_tracks" in sig.parameters
+    sig = inspect.signature(TimelineEditor.__init__)
+    assert "edit_plan" in sig.parameters
+    assert "illustrations" in sig.parameters
+    assert "audio_plan" in sig.parameters
     assert "pack_suggestions" in sig.parameters
     assert "pack_manager" in sig.parameters
+    assert "video_path" in sig.parameters
 
 
 def test_all_main_dialogs_open_without_exception(qt_app, tmp_path):

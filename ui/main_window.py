@@ -443,9 +443,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_analysis_done(self, ctx: PipelineContext) -> None:
-        """Análise concluída: abre a tela de revisão (obrigatória)."""
+        """Análise concluída: abre o editor de timeline (obrigatório)."""
         assert ctx.edit_plan is not None
-        from ui.review_dialog import ReviewDialog
+        from ui.timeline_editor import TimelineEditor
 
         self._log(
             f"> Plano: {len(ctx.edit_plan.cuts)} corte(s), "
@@ -453,35 +453,28 @@ class MainWindow(QMainWindow):
             f"{len(ctx.illustrations)} destaque(s), "
             f"{len(ctx.pack_suggestions)} sugestão(ões) do pack, "
             f"{len(ctx.audio_plan.sfx) if ctx.audio_plan else 0} efeito(s) "
-            "— aguardando sua revisão"
+            "— abrindo editor de timeline"
         )
 
-        def image_fetcher(prompt: str):
-            return self.image_manager.fetch_cached(
-                self.settings.illustration_provider, prompt
-            )
-
-        dialog = ReviewDialog(
+        dialog = TimelineEditor(
             ctx.edit_plan,
             ctx.illustrations,
-            image_fetcher,
             ctx.audio_plan,
-            music_tracks=self._review_tracks,
-            pack_suggestions=ctx.pack_suggestions,
-            pack_manager=self.pack_manager,
-            video_path=ctx.input_path,
+            ctx.pack_suggestions,
+            self.pack_manager,
+            ctx.input_path,
             parent=self,
         )
-        if dialog.exec() != ReviewDialog.DialogCode.Accepted:
-            self.run_btn.setEnabled(True)
-            self.status_label.setText("Revisão cancelada — nada foi renderizado.")
-            self._switch_page(0)
-            return
+        dialog.accepted.connect(lambda: self._on_timeline_accepted(ctx, dialog))
+        dialog.exec()
 
-        ctx.edit_plan = dialog.approved_plan()
-        ctx.illustrations = dialog.approved_illustrations()
-        ctx.audio_plan = dialog.approved_audio()
-        ctx.pack_suggestions = dialog.approved_pack()
+    def _on_timeline_accepted(
+        self, ctx: PipelineContext, editor
+    ) -> None:
+        ctx.edit_plan = editor.approved_plan()
+        ctx.illustrations = editor.approved_illustrations()
+        ctx.audio_plan = editor.approved_audio()
+        ctx.pack_suggestions = editor.approved_pack()
         self.status_label.setText("Renderizando vídeo final…")
         self.progress_bar.setValue(0)
         self._last_step = None
