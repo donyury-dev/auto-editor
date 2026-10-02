@@ -465,16 +465,17 @@ class MainWindow(QMainWindow):
             ctx.input_path,
             parent=self,
         )
-        dialog.accepted.connect(lambda: self._on_timeline_accepted(ctx, dialog))
-        dialog.exec()
+        if dialog.exec() != TimelineEditor.DialogCode.Accepted:
+            self.run_btn.setEnabled(True)
+            self.status_label.setText("Edição cancelada — nada foi renderizado.")
+            self._switch_page(0)
+            return
 
-    def _on_timeline_accepted(
-        self, ctx: PipelineContext, editor
-    ) -> None:
-        ctx.edit_plan = editor.approved_plan()
-        ctx.illustrations = editor.approved_illustrations()
-        ctx.audio_plan = editor.approved_audio()
-        ctx.pack_suggestions = editor.approved_pack()
+        ctx.edit_plan = dialog.approved_plan()
+        ctx.illustrations = dialog.approved_illustrations()
+        ctx.audio_plan = dialog.approved_audio()
+        ctx.pack_suggestions = dialog.approved_pack()
+        self.run_btn.setEnabled(False)
         self.status_label.setText("Renderizando vídeo final…")
         self.progress_bar.setValue(0)
         self._last_step = None

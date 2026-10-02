@@ -15,13 +15,12 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
+    QDialog,
     QHBoxLayout,
     QLabel,
-    QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSlider,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -46,10 +45,8 @@ from ui.timeline_view import TimelineView
 logger = logging.getLogger(__name__)
 
 
-class TimelineEditor(QMainWindow):
-    """Janela de edição de timeline."""
-
-    accepted = pyqtSignal()
+class TimelineEditor(QDialog):
+    """Janela de edição de timeline (modal, substitui ReviewDialog)."""
 
     def __init__(
         self,
@@ -64,10 +61,12 @@ class TimelineEditor(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("Auto Editor — Editar timeline")
         self.resize(1280, 860)
+        # QDialog pode ser modal, mas vamos manter exec() compatível
+        self.setModal(True)
 
         self.video_path = Path(video_path)
         self.pack_manager = pack_manager
-        self._original_plan = edit_plan
+        self._accepted = False
 
         # timeline inicial a partir dos planos aprovados
         self.timeline = PlanToTimelineAdapter(
@@ -96,8 +95,11 @@ class TimelineEditor(QMainWindow):
         self.timeline_view.clipDeleted.connect(self._on_clip_deleted)
         self.timeline_view.splitRequested.connect(self._on_clip_split)
 
-        central = QWidget()
-        self.setCentralWidget(central)
+        central = QWidget(self)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -380,8 +382,11 @@ class TimelineEditor(QMainWindow):
                 "A timeline precisa ter pelo menos um clipe de vídeo.",
             )
             return
-        self.accepted.emit()
-        self.close()
+        self._accepted = True
+        self.accept()
+
+    def is_accepted(self) -> bool:
+        return self._accepted
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         # repassa S/Del para a timeline
