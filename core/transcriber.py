@@ -65,32 +65,25 @@ class TranscriptionEngine:
         )
         from config.settings import PROJECT_ROOT
 
-        # Modelo embutido no pacote (layout plano gerado por
-        # scripts/download_whisper_model.py): carrega direto da pasta,
-        # 100% offline e sem tentar escrever no bundle.
-        bundled_model_dir = PROJECT_ROOT / "models" / "whisper" / "small"
+        # 1) Tenta modelo embutido no pacote (instalador "full" offline).
+        bundled_model_dir = PROJECT_ROOT / "models" / "whisper" / self.model_size
         if (bundled_model_dir / "model.bin").exists():
             logger.info("Usando modelo embutido em %s", bundled_model_dir)
-            model = WhisperModel(
-                str(bundled_model_dir),
-                device=self.device,
-                compute_type=self.compute_type,
-            )
+            model_path = str(bundled_model_dir)
         else:
-            # Desenvolvimento: usa cache do Hugging Face local (download
-            # na primeira execução, depois lê do cache).
-            local_model_dir = PROJECT_ROOT / "models" / "whisper"
-            download_root = (
-                str(local_model_dir)
-                if local_model_dir.exists()
-                else None
+            # 2) Versão lite: baixa o modelo para a pasta de dados do usuário
+            # na primeira execução, depois fica cacheado offline.
+            from core.whisper_download import ensure_whisper_model
+
+            model_path = str(
+                ensure_whisper_model(self.model_size, progress=progress)
             )
-            model = WhisperModel(
-                self.model_size,
-                device=self.device,
-                compute_type=self.compute_type,
-                download_root=download_root,
-            )
+
+        model = WhisperModel(
+            model_path,
+            device=self.device,
+            compute_type=self.compute_type,
+        )
         segments, info = model.transcribe(
             str(media_path), word_timestamps=True, vad_filter=True
         )

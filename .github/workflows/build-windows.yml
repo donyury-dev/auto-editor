@@ -50,10 +50,9 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements-dev.txt
 
-      - name: Baixar FFmpeg, modelo Whisper e trilhas
+      - name: Baixar FFmpeg e trilhas
         run: |
           python scripts/download_ffmpeg.py
-          python scripts/download_whisper_model.py
           python scripts/download_sample_music.py
         timeout-minutes: 30
 
@@ -83,13 +82,17 @@ jobs:
           tag_name: v${{ github.event.inputs.version }}
           name: Auto Editor v${{ github.event.inputs.version }}
           body: |
-            Instalador Windows do Auto Editor ("abrir e usar").
+            Instalador Windows do Auto Editor (versão lite).
 
             Inclui:
             - Executável standalone (PyInstaller)
             - FFmpeg embutido
-            - Modelo Whisper `small` para transcrição offline
             - 3 trilhas de exemplo sem direitos autorais
+
+            **Modelo Whisper não incluso** para manter o instalador leve.
+            Na primeira transcrição, o app baixa automaticamente o modelo
+            `small` escolhido (apenas uma vez; depois funciona 100% offline).
+            Requer conexão com a internet nesse primeiro download.
 
             **Aviso:** como o instalador não está assinado digitalmente, o
             Windows pode exibir a tela "O Windows protegeu seu PC". Clique em

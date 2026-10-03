@@ -123,6 +123,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Auto Editor — Edição viral com IA")
         self.setMinimumSize(880, 620)
         self.settings = Settings.load()
+        # Garante pastas de dados do usuário antes de qualquer operação
+        # (especialmente importante no bundle, onde APPDATA pode ser novo).
+        from config.settings import DATA_DIR
+
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.manager = ProviderManager()
         self.image_manager = ImageProviderManager()
         self.template_manager = TemplateManager()

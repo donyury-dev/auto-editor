@@ -51,12 +51,18 @@ def ensure_ffmpeg() -> None:
 
 
 def ensure_whisper() -> None:
+    # Na versão lite o modelo não é embutido; é baixado na primeira execução
+    # do app pelo usuário. Mantemos a função para compatibilidade com o fluxo
+    # full-offline (basta colocar models/whisper/small antes do build).
     model_dir = PROJECT_ROOT / "models" / "whisper" / "small"
     if model_dir.exists() and any(model_dir.iterdir()):
-        logger.info("Modelo Whisper small já presente em %s", model_dir)
+        logger.info("Modelo Whisper small será embutido a partir de %s", model_dir)
         return
-    logger.info("Modelo Whisper small não encontrado; baixando...")
-    run([sys.executable, "scripts/download_whisper_model.py"])
+    logger.info(
+        "Modelo Whisper small não encontrado em %s; "
+        "o instalador será gerado sem modelo (versão lite).",
+        model_dir,
+    )
 
 
 def ensure_music() -> None:
