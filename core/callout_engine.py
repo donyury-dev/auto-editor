@@ -35,7 +35,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Callout,{font_name},{font_size},{primary},&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,8,4,8,70,70,{margin_v},1
+Style: Callout,{font_name},{font_size},{primary},&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,8,4,8,100,100,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -51,7 +51,16 @@ def _short_text(moment: IllustrationMoment) -> str:
     words = text.split()
     if len(words) > 6:
         text = " ".join(words[:6])
-    return text[:48]
+    text = text[:48]
+    # Quebra em duas linhas se for longo, para não ultrapassar a tela.
+    if len(text) > 24:
+        mid = len(text) // 2
+        space = text.rfind(" ", 0, mid)
+        if space == -1:
+            space = text.find(" ", mid)
+        if space != -1:
+            text = text[:space] + "\\N" + text[space + 1 :]
+    return text
 
 
 def write_callouts_ass(

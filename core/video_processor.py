@@ -535,9 +535,42 @@ class VideoProcessor:
                 vstreams = "".join(f"[{i}:v:0]" for i in range(n))
                 fc = f"{vstreams}concat=n={n}:v=1[v]"
                 maps = ["-map", "[v]"]
-        else:
-            # cadeia de xfade (vídeo) + acrossfade (áudio)
+        elif plan.transition_type == "fade":
+            # fade real entre segmentos usando fade filter (não xfade)
             parts: list[str] = []
+            for i in range(n):
+                fade_filters = [f"[{i}:v]format=pix_fmts=yuv420p[v{i}]"]
+                # Nada mais: cada segmento é preparado individualmente
+                parts.append(fade_filters[0])
+            # Cadeia de crossfade via fade-in/fade-out sobrepostos
+            # Implementação simplificada: usamos xfade com transition=fade
+            # pois no xfade do ffmpeg "fade" é o efeito de fade limpo.
+            prev_v = "[v0]"
+            acc = durations[0]
+            for i in range(1, n):
+                out_v = f"[xv{i}]" if i < n - 1 else "[v]"
+                offset = max(0.0, acc - td)
+                parts.append(
+                    f"{prev_v}[{i}:v]xfade=transition=fade"
+                    f":duration={td:.3f}:offset={offset:.3f}{out_v}"
+                )
+                prev_v = out_v
+                acc = acc + durations[i] - td
+            if has_audio:
+                prev_a = "[0:a]"
+                for i in range(1, n):
+                    out_a = f"[xa{i}]" if i < n - 1 else "[a]"
+                    parts.append(
+                        f"{prev_a}[{i}:a]acrossfade=d={td:.3f}{out_a}"
+                    )
+                    prev_a = out_a
+                maps = ["-map", "[v]", "-map", "[a]"]
+            else:
+                maps = ["-map", "[v]"]
+            fc = ";".join(parts)
+        else:
+            # cadeia de xfade (vídeo) + acrossfade (áudio) — transições animadas
+            parts = []
             prev_v = "[0:v]"
             acc = durations[0]
             for i in range(1, n):
