@@ -26,17 +26,26 @@ def _faster_whisper_assets() -> tuple[str, str]:
     return (str(src), "faster_whisper/assets")
 
 
-a = Analysis(
-    ["main.py"],
-    pathex=[str(Path.cwd())],
-    binaries=[],
-    datas=[
+def _optional_datas() -> list[tuple[str, str]]:
+    """Retorna data dirs opcionais, ignorando os que não existem."""
+    entries = [
         ("assets", "assets"),
         ("config", "config"),
         ("models", "models"),
         ("bin/ffmpeg", "bin/ffmpeg"),
-        _faster_whisper_assets(),
-    ],
+    ]
+    result = []
+    for src, dst in entries:
+        if Path(src).exists():
+            result.append((src, dst))
+    return result
+
+
+a = Analysis(
+    ["main.py"],
+    pathex=[str(Path.cwd())],
+    binaries=[],
+    datas=_optional_datas() + [_faster_whisper_assets()],
     hiddenimports=[
         "faster_whisper",
         "faster_whisper.transcribe",
