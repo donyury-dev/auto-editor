@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -39,6 +40,9 @@ class LivePreviewWidget(QWidget):
         self._duration = 0.0
         self._playing = False
         self._min_width = 320
+        self._audio_path: Path | None = None
+        self._audio_proc: subprocess.Popen | None = None
+        self._muted = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -60,9 +64,20 @@ class LivePreviewWidget(QWidget):
         self.slider.sliderMoved.connect(self._on_slider)
         self.time_label = QLabel("0.0s")
         self.time_label.setStyleSheet("color: #8b8b96; font-size: 11px;")
+        self.mute_btn = QPushButton("🔊")
+        self.mute_btn.setFixedWidth(36)
+        self.mute_btn.setToolTip("Mudo")
+        self.mute_btn.clicked.connect(self._toggle_mute)
+        self.vol_slider = QSlider(Qt.Orientation.Horizontal)
+        self.vol_slider.setRange(0, 100)
+        self.vol_slider.setValue(100)
+        self.vol_slider.setFixedWidth(80)
+        self.vol_slider.valueChanged.connect(self._set_volume)
         controls.addWidget(self.play_btn)
         controls.addWidget(self.slider, 1)
         controls.addWidget(self.time_label)
+        controls.addWidget(self.mute_btn)
+        controls.addWidget(self.vol_slider)
         layout.addLayout(controls)
 
         self._timer = QTimer(self)
@@ -72,7 +87,7 @@ class LivePreviewWidget(QWidget):
     # ------------------------------------------------------------------
 
     def load(self, video_path: Path | str) -> bool:
-        """Abre o vídeo para preview. Retorna True se conseguiu."""
+        """Abre o vídeo para preview e extrai áudio WAV temporário."""
         import cv2
 
         self.stop()
@@ -85,8 +100,49 @@ class LivePreviewWidget(QWidget):
         frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         self._duration = frames / self._fps if self._fps > 0 else 0.0
         self.slider.setRange(0, max(1, int(self._duration * 1000)))
+        self._extract_audio(Path(video_path))
         self.set_time(0.0)
         return True
+
+    def _extract_audio(self, video_path: Path) -> None:
+        """Extrai áudio estéreo 48kHz para arquivo WAV temporário."""
+        self._stop_audio()
+        self._audio_path = None
+        try:
+            from core.ffmpeg_path import get_ffmpeg, subprocess_kwargs
+
+            ffmpeg = get_ffmpeg()
+            suffix = video_path.stem.replace(" ", "_")[:40]
+            fd, wav_path = tempfile.mkstemp(
+                prefix=f"ae_preview_{suffix}_", suffix=".wav"
+            )
+            os.close(fd)
+            cmd = [
+                str(ffmpeg),
+                "-y",
+                "-i",
+                str(video_path),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                wav_path,
+            ]
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                **subprocess_kwargs(),
+            )
+            self._audio_path = Path(wav_path)
+            logger.info("Áudio de preview extraído: %s", self._audio_path)
+        except Exception as exc:
+            logger.warning("Não foi possível extrair áudio de preview: %s", exc)
+            self._audio_path = None
 
     def clear(self) -> None:
         self.stop()
@@ -103,11 +159,13 @@ class LivePreviewWidget(QWidget):
             return
         self._playing = True
         self.play_btn.setText("⏸")
+        self._start_audio()
         self._timer.start()
 
     def pause(self) -> None:
         self._playing = False
         self.play_btn.setText("▶")
+        self._stop_audio()
         self._timer.stop()
 
     def stop(self) -> None:
@@ -117,6 +175,84 @@ class LivePreviewWidget(QWidget):
             self._cap = None
         self.slider.setRange(0, 0)
         self.time_label.setText("0.0s")
+        self._cleanup_audio_file()
+
+    def _cleanup_audio_file(self) -> None:
+        if self._audio_path is not None and self._audio_path.exists():
+            try:
+                self._audio_path.unlink()
+            except OSError:
+                pass
+        self._audio_path = None
+
+    def _start_audio(self) -> None:
+        if self._muted or self._audio_path is None or not self._audio_path.exists():
+            return
+        from core.ffmpeg_path import _find_executable, subprocess_kwargs
+
+        ffplay = _find_executable("ffplay")
+        if ffplay is None:
+            return
+        # ffplay não tem seek preciso; começamos do tempo atual
+        start = self._current_time()
+        if start >= self._duration - 0.05:
+            return
+        self._stop_audio()
+        try:
+            self._audio_proc = subprocess.Popen(
+                [
+                    str(ffplay),
+                    "-nodisp",
+                    "-autoexit",
+                    "-loglevel",
+                    "quiet",
+                    "-ss",
+                    str(start),
+                    "-volume",
+                    str(self._volume_percent()),
+                    str(self._audio_path),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                **subprocess_kwargs(),
+            )
+        except OSError as exc:
+            logger.warning("Falha ao iniciar áudio de preview: %s", exc)
+
+    def _stop_audio(self) -> None:
+        if self._audio_proc is not None:
+            try:
+                self._audio_proc.terminate()
+                self._audio_proc.wait(timeout=0.3)
+            except Exception:
+                try:
+                    self._audio_proc.kill()
+                except Exception:
+                    pass
+            self._audio_proc = None
+
+    def _volume_percent(self) -> int:
+        return 0 if self._muted else self.vol_slider.value()
+
+    def _toggle_mute(self) -> None:
+        self._muted = not self._muted
+        self.mute_btn.setText("🔇" if self._muted else "🔊")
+        if self._playing:
+            self._start_audio()
+
+    def _set_volume(self, value: int) -> None:
+        if value > 0 and self._muted:
+            self._muted = False
+            self.mute_btn.setText("🔊")
+        if self._playing:
+            self._start_audio()
+
+    def _current_time(self) -> float:
+        if self._cap is None:
+            return 0.0
+        import cv2
+
+        return self._cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
 
     def set_time(self, seconds: float) -> None:
         """Busca o frame no tempo dado (segundos) e exibe."""
@@ -135,6 +271,8 @@ class LivePreviewWidget(QWidget):
             self.slider.blockSignals(True)
             self.slider.setValue(int(seconds * 1000))
             self.slider.blockSignals(False)
+        if self._playing:
+            self._start_audio()
 
     def seek_fraction(self, fraction: float) -> None:
         """Posiciona o preview em fração da duração (0.0–1.0).
@@ -168,6 +306,11 @@ class LivePreviewWidget(QWidget):
             self.slider.blockSignals(True)
             self.slider.setValue(int(msec))
             self.slider.blockSignals(False)
+        # Se o áudio terminou (ffplay com autoexit) e ainda estamos no fim,
+        # pausamos para não ficar em loop silencioso.
+        if self._audio_proc is not None and self._audio_proc.poll() is not None:
+            if seconds >= self._duration - 0.2:
+                self.pause()
 
     def _on_slider(self, value: int) -> None:
         self.set_time(value / 1000.0)
@@ -220,8 +363,108 @@ class EditedPreviewWidget(LivePreviewWidget):
         self._simulate = bool(enabled)
         self._cuts = list(cuts or [])
         self._rebuild_mapping()
+        self._rebuild_edited_audio()
         # re-exibe o tempo atual já com o novo mapeamento
         self.set_time(self._current_display())
+
+    def _rebuild_edited_audio(self) -> None:
+        """Gera WAV editado (sem cortes aprovados) para o modo prévia."""
+        self._cleanup_edited_audio()
+        self._edited_audio_path: Path | None = None
+        if not self._simulate or not self._cuts or self._audio_path is None:
+            return
+        try:
+            from core.ffmpeg_path import get_ffmpeg, subprocess_kwargs
+
+            ffmpeg = get_ffmpeg()
+            fd, out_path = tempfile.mkstemp(
+                prefix="ae_preview_edited_", suffix=".wav"
+            )
+            os.close(fd)
+            inputs: list[str] = []
+            for start, end, _final in self._kept:
+                inputs += ["-ss", str(start), "-t", str(end - start), "-i", str(self._audio_path)]
+            if not inputs:
+                return
+            filter_parts = []
+            n = len(self._kept)
+            for i in range(n):
+                filter_parts.append(f"[{i}:a:0]")
+            filter_parts.append(f"concat=n={n}:v=0:a=1[out]")
+            cmd = [str(ffmpeg), "-y"] + inputs + ["-filter_complex", "".join(filter_parts), "-map", "[out]", out_path]
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                **subprocess_kwargs(),
+            )
+            self._edited_audio_path = Path(out_path)
+            logger.info("Áudio editado de preview gerado: %s", self._edited_audio_path)
+        except Exception as exc:
+            logger.warning("Não foi possível gerar áudio editado: %s", exc)
+            self._edited_audio_path = None
+
+    def _cleanup_edited_audio(self) -> None:
+        path = getattr(self, "_edited_audio_path", None)
+        if path is not None and path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        self._edited_audio_path = None
+
+    def _active_audio_path(self) -> Path | None:
+        if self._simulate and self._edited_audio_path is not None:
+            return self._edited_audio_path
+        return self._audio_path
+
+    def _start_audio(self) -> None:
+        audio_path = self._active_audio_path()
+        if self._muted or audio_path is None or not audio_path.exists():
+            return
+        from core.ffmpeg_path import _find_executable, subprocess_kwargs
+
+        ffplay = _find_executable("ffplay")
+        if ffplay is None:
+            return
+        start = self._current_time()
+        if self._simulate:
+            # No áudio editado, o tempo de exibição já é o tempo do arquivo
+            start = self._current_display()
+        if start >= self.display_duration() - 0.05:
+            return
+        self._stop_audio()
+        try:
+            self._audio_proc = subprocess.Popen(
+                [
+                    str(ffplay),
+                    "-nodisp",
+                    "-autoexit",
+                    "-loglevel",
+                    "quiet",
+                    "-ss",
+                    str(start),
+                    "-volume",
+                    str(self._volume_percent()),
+                    str(audio_path),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                **subprocess_kwargs(),
+            )
+        except OSError as exc:
+            logger.warning("Falha ao iniciar áudio de preview: %s", exc)
+
+    def stop(self) -> None:
+        self.pause()
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+        self.slider.setRange(0, 0)
+        self.time_label.setText("0.0s")
+        self._cleanup_edited_audio()
+        self._cleanup_audio_file()
 
     def set_overlays(self, items: list[dict]) -> None:
         """items: [{path: str|Path, start: float, end: float}] (tempo original)."""
@@ -348,11 +591,13 @@ class EditedPreviewWidget(LivePreviewWidget):
         self.set_time(value / 1000.0)
 
     def load(self, video_path) -> bool:
+        self._cleanup_edited_audio()
         loaded = super().load(video_path)
         if loaded:
             self.slider.setRange(0, max(1, int(self._duration * 1000)))
             self._src_time = 0.0
             self._rebuild_mapping()
+            self._rebuild_edited_audio()
         return loaded
 
     # -- composição -------------------------------------------------------
