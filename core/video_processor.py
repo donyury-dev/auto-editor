@@ -465,7 +465,16 @@ class VideoProcessor:
             "[vout]",
         ]
         if info.has_audio:
-            cmd += ["-map", "0:a:0?"]
+            # Aplica fade in/out curto no áudio para evitar cliques nos cortes
+            seg_dur = max(0.05, seg_end - seg_start)
+            fade_d = min(0.03, seg_dur / 3)
+            cmd += [
+                "-filter_complex",
+                f"[0:a:0]afade=t=in:st=0:d={fade_d},"
+                f"afade=t=out:st={seg_dur - fade_d}:d={fade_d}[aout]",
+                "-map",
+                "[aout]",
+            ]
         cmd += [
             "-c:v", "libx264", "-preset", "fast", "-crf", "20",
             "-pix_fmt", "yuv420p",

@@ -49,11 +49,11 @@ def _short_text(moment: IllustrationMoment) -> str:
         or moment.prompt.strip()
     )
     words = text.split()
-    if len(words) > 6:
-        text = " ".join(words[:6])
-    text = text[:48]
+    if len(words) > 5:
+        text = " ".join(words[:5])
+    text = text[:40]
     # Quebra em duas linhas se for longo, para não ultrapassar a tela.
-    if len(text) > 24:
+    if len(text) > 20:
         mid = len(text) // 2
         space = text.rfind(" ", 0, mid)
         if space == -1:
@@ -71,8 +71,14 @@ def write_callouts_ass(
 ) -> Path:
     """Escreve call-outs grandes, animados e separados das legendas."""
     vertical = play_h >= play_w
-    font_size = 116 if vertical else 84
-    margin_v = int(play_h * (0.14 if vertical else 0.12))
+    # Ajusta fonte conforme texto: textos longos precisam de fonte menor
+    # para não estourar a largura em 1080px (vertical).
+    longest = max((len(_short_text(m).replace("\\N", " ")) for m in moments), default=0)
+    if vertical:
+        font_size = 84 if longest > 22 else 100
+    else:
+        font_size = 72 if longest > 22 else 84
+    margin_v = int(play_h * (0.16 if vertical else 0.12))
     header = _HEADER.format(
         play_w=play_w,
         play_h=play_h,
@@ -93,10 +99,10 @@ def write_callouts_ass(
         lines.append(
             f"Dialogue: 20,{start},{end},Callout,,0,0,0,,"
             f"{{\\an8\\c{rgb_to_ass('#FFD400')}\\3c&H00000000"
-            f"\\bord8\\shad4\\fad(80,220)\\fscx55\\fscy55\\frz-6"
-            f"\\t(0,180,\\fscx130\\fscy130\\frz5)"
-            f"\\t(180,360,\\fscx110\\fscy110\\frz-2)"
-            f"\\t(360,520,\\fscx100\\fscy100\\frz0)}}"
+            f"\\bord6\\shad4\\fad(120,220)\\fscx55\\fscy55"
+            f"\\t(0,220,\\fscx115\\fscy115)"
+            f"\\t(220,400,\\fscx105\\fscy105)"
+            f"\\t(400,560,\\fscx100\\fscy100)}}"
             f"{text.upper()}{{\\r}}"
         )
         count += 1

@@ -123,7 +123,7 @@ PACK_CATEGORIES: dict[str, dict] = {
 }
 
 # Categorias aplicadas automaticamente pela IA no render (sempre revisáveis).
-AUTO_APPLY_CATEGORIES = {"overlays", "light_leaks", "emojis", "gifs", "sfx", "luts"}
+AUTO_APPLY_CATEGORIES = {"overlays", "emojis", "gifs", "sfx", "luts"}
 
 # Categorias indexadas para uso manual futuro (sem interface ainda).
 MANUAL_ONLY_CATEGORIES = {
