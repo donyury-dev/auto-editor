@@ -92,7 +92,7 @@ class Settings:
     # Fase 6 (templates): parâmetros de ritmo de edição persistidos
     transition_type: str = "corte"
     transition_duration: float = 0.1
-    silence_gap_s: float = 0.7
+    silence_gap_s: float = 0.35
     zoom_intensity: float = 0.10
     zoom_spread_s: float = 6.0
     max_zooms: int = 4
@@ -144,7 +144,10 @@ class Settings:
             voice_normalize=bool(data.get("voice_normalize", True)),
             transition_type=str(data.get("transition_type", "corte")),
             transition_duration=float(data.get("transition_duration", 0.1)),
-            silence_gap_s=float(data.get("silence_gap_s", 0.7)),
+            # 0.7 era o padrão antigo; migra para o novo (pega respiros)
+            silence_gap_s=0.35
+            if abs(float(data.get("silence_gap_s", 0.35)) - 0.7) < 1e-6
+            else float(data.get("silence_gap_s", 0.35)),
             zoom_intensity=float(data.get("zoom_intensity", 0.10)),
             zoom_spread_s=float(data.get("zoom_spread_s", 6.0)),
             max_zooms=int(data.get("max_zooms", 4)),

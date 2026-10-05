@@ -18,7 +18,8 @@ def test_plano_com_silencios_vira_cortes():
         {"start": w.start, "end": w.end, "text": w.text} for w in words
     ]
     raw = provider.suggest_edit_plan("", segments, duration=5.5)
-    assert len(raw["cuts"]) == 2  # silêncio final de 0.5s não vira corte
+    # limiar 0.35s: o silêncio final de 0.5s também vira corte
+    assert len(raw["cuts"]) == 3
     assert raw["cuts"][0]["start"] == 1.0
     assert raw["cuts"][0]["end"] == 2.0
     assert raw["transition_type"] in ("corte", "fade")

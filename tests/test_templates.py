@@ -78,7 +78,7 @@ def test_apply_template_updates_settings(manager):
 
     assert settings.caption_style == "viral_amarelo"
     assert settings.transition_type == "corte"
-    assert settings.silence_gap_s == 0.5
+    assert settings.silence_gap_s == 0.35
     assert settings.zoom_intensity == 0.14
     assert settings.max_zooms == 6
     assert settings.illustration_density_s == 6.0

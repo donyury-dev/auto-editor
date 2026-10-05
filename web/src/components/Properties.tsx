@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import type { CaptionStylePreset, Selection, Timeline } from "../types";
+import type {
+  CaptionStylePreset,
+  Library,
+  Selection,
+  Timeline,
+} from "../types";
 
 interface PropertiesProps {
   timeline: Timeline;
@@ -7,15 +12,17 @@ interface PropertiesProps {
   onChange: (t: Timeline) => void;
   onDelete: () => void;
   captionStyles: CaptionStylePreset[];
+  library: Library | null;
 }
 
-/** Painel de propriedades do item selecionado (corte/legenda/call-out/música). */
+/** Painel de propriedades do item selecionado (corte/legenda/call-out/zoom/sfx/música). */
 export default function Properties({
   timeline,
   selection,
   onChange,
   onDelete,
   captionStyles,
+  library,
 }: PropertiesProps) {
   if (!selection) {
     return (
@@ -30,6 +37,7 @@ export default function Properties({
           onChange={onChange}
           captionStyles={captionStyles}
         />
+        <MusicPicker timeline={timeline} onChange={onChange} library={library} />
       </aside>
     );
   }
@@ -98,7 +106,91 @@ export default function Properties({
     );
   }
 
-  // música
+  if (selection.kind === "zoom") {
+    const z = timeline.zooms.find((x) => x.id === selection.id);
+    if (!z) return null;
+    return (
+      <aside className="properties">
+        <h3>Zoom</h3>
+        <Num label="Início (s)" value={z.start} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchZoom(timeline, z.id, { start: v }))} />
+        <Num label="Fim (s)" value={z.end} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchZoom(timeline, z.id, { end: v }))} />
+        <label>
+          Intensidade: {Math.round(z.intensity * 100)}%
+          <input
+            type="range"
+            min={5}
+            max={30}
+            value={Math.round(z.intensity * 100)}
+            onChange={(e) =>
+              onChange(patchZoom(timeline, z.id, { intensity: Number(e.target.value) / 100 }))
+            }
+          />
+        </label>
+        <button className="danger" onClick={onDelete}>Remover zoom</button>
+      </aside>
+    );
+  }
+
+  if (selection.kind === "sfx") {
+    const s = timeline.sfx.find((x) => x.id === selection.id);
+    if (!s) return null;
+    return (
+      <aside className="properties">
+        <h3>Efeito sonoro</h3>
+        <label>
+          Tipo
+          <select
+            value={s.kind}
+            onChange={(e) =>
+              onChange({
+                ...timeline,
+                sfx: timeline.sfx.map((x) =>
+                  x.id === s.id ? { ...x, kind: e.target.value } : x
+                ),
+              })
+            }
+          >
+            {["whoosh", "ding", "impacto", "pop"].map((k) => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </label>
+        <Num label="Momento (s)" value={s.timestamp} min={0} max={timeline.video.duration}
+          onChange={(v) =>
+            onChange({
+              ...timeline,
+              sfx: timeline.sfx.map((x) =>
+                x.id === s.id ? { ...x, timestamp: v } : x
+              ),
+            })
+          }
+        />
+        <button className="danger" onClick={onDelete}>Remover efeito</button>
+      </aside>
+    );
+  }
+
+  if (selection.kind === "music") {
+    const music = timeline.music;
+    return (
+      <aside className="properties">
+        <h3>Música</h3>
+        <MusicPicker timeline={timeline} onChange={onChange} library={library} />
+        <p className="hint">{music.label || "Nenhuma trilha selecionada."}</p>
+        {music.path && (
+          <button
+            className="danger"
+            onClick={() => onChange({ ...timeline, music: { path: null, label: "", volume: 0.25 } })}
+          >
+            Remover música
+          </button>
+        )}
+      </aside>
+    );
+  }
+
   const music = timeline.music;
   return (
     <aside className="properties">
@@ -125,6 +217,67 @@ export default function Properties({
         </button>
       )}
     </aside>
+  );
+}
+
+function MusicPicker({
+  timeline,
+  onChange,
+  library,
+}: {
+  timeline: Timeline;
+  onChange: (t: Timeline) => void;
+  library: Library | null;
+}) {
+  const tracks = library?.music ?? [];
+  return (
+    <>
+      <h3>Música de fundo</h3>
+      {tracks.length > 0 ? (
+        <select
+          value={timeline.music.path || ""}
+          onChange={(e) => {
+            const item = tracks.find((t) => t.path === e.target.value);
+            if (!item) return;
+            onChange({
+              ...timeline,
+              music: {
+                path: item.path,
+                label: item.label,
+                volume: timeline.music.volume,
+              },
+            });
+          }}
+        >
+          <option value="">Nenhuma</option>
+          {tracks.map((t) => (
+            <option key={t.path} value={t.path}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <p className="hint">
+          Nenhuma trilha na biblioteca — conecte o HD do pack ou adicione
+          arquivos em assets/music.
+        </p>
+      )}
+      <label>
+        Volume: {Math.round(timeline.music.volume * 100)}%
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(timeline.music.volume * 100)}
+          onChange={(e) =>
+            onChange({
+              ...timeline,
+              music: { ...timeline.music, volume: Number(e.target.value) / 100 },
+            })
+          }
+        />
+      </label>
+    </>
   );
 }
 
@@ -276,5 +429,18 @@ function patchCalloutTime(t: Timeline, id: string, patch: { start?: number; end?
     callouts: t.callouts
       .map((c) => (c.id === id ? { ...c, ...patch } : c))
       .filter((c) => c.end > c.start),
+  };
+}
+
+function patchZoom(
+  t: Timeline,
+  id: string,
+  patch: { start?: number; end?: number; intensity?: number }
+): Timeline {
+  return {
+    ...t,
+    zooms: t.zooms
+      .map((z) => (z.id === id ? { ...z, ...patch } : z))
+      .filter((z) => z.end > z.start),
   };
 }

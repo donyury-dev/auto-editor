@@ -50,7 +50,7 @@ class Template:
     # -- ritmo de edição --
     transition_type: str = "corte"
     transition_duration: float = 0.1
-    silence_gap_s: float = 0.7  # gaps maiores viram corte
+    silence_gap_s: float = 0.35  # gaps maiores viram corte (pega respiros)
     zoom_intensity: float = 0.10  # 0.10 = 10% de zoom no pico
     zoom_spread_s: float = 6.0  # distância mínima entre zooms
     max_zooms: int = 4
@@ -90,7 +90,7 @@ BUILT_IN_TEMPLATES: list[Template] = [
         callout_bounce=False,
         transition_type="fade",
         transition_duration=0.25,
-        silence_gap_s=1.0,
+        silence_gap_s=0.6,
         zoom_intensity=0.06,
         zoom_spread_s=8.0,
         max_zooms=2,
@@ -121,7 +121,7 @@ BUILT_IN_TEMPLATES: list[Template] = [
         callout_bounce=True,
         transition_type="corte",
         transition_duration=0.05,
-        silence_gap_s=0.5,
+        silence_gap_s=0.35,
         zoom_intensity=0.14,
         zoom_spread_s=4.5,
         max_zooms=6,
@@ -153,7 +153,7 @@ BUILT_IN_TEMPLATES: list[Template] = [
         callout_bounce=True,
         transition_type="corte",
         transition_duration=0.1,
-        silence_gap_s=0.8,
+        silence_gap_s=0.5,
         zoom_intensity=0.08,
         zoom_spread_s=7.0,
         max_zooms=3,

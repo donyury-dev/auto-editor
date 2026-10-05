@@ -85,5 +85,7 @@ export type Selection =
   | { kind: "cut"; id: string }
   | { kind: "caption"; id: string }
   | { kind: "callout"; id: string }
+  | { kind: "zoom"; id: string }
+  | { kind: "sfx"; id: string }
   | { kind: "music" }
   | null;

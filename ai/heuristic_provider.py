@@ -18,7 +18,7 @@ from core.edit_plan import MIN_CUT_S, ZOOM_MIN_DURATION_S
 
 logger = logging.getLogger(__name__)
 
-SILENCE_GAP_S = 0.7  # gaps >= isso viram sugestão de corte
+SILENCE_GAP_S = 0.35  # gaps >= isso viram sugestão de corte (pega respiros)
 MAX_ZOOMS = 4
 MIN_WORD_S = 0.45  # palavra precisa durar isso pra virar zoom
 ZOOM_SPREAD_S = 6.0  # distância mínima entre zooms (garante voltar a 100%)
@@ -58,7 +58,7 @@ class HeuristicProvider(AIProvider):
         super().__init__(api_key=api_key, model=model, base_url=base_url)
         # Parâmetros ajustáveis via template (settings);
         # valores padrão mantidos para compatibilidade.
-        self.silence_gap_s = 0.7
+        self.silence_gap_s = 0.35
         self.max_zooms = 4
         self.zoom_spread_s = 6.0
         self.zoom_intensity = 0.10

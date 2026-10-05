@@ -173,6 +173,21 @@ export default function App() {
     setSelection({ kind: "cut", id });
   };
 
+  const addCalloutHere = () => {
+    if (!timeline || !videoRef.current) return;
+    const t = videoRef.current.currentTime;
+    const end = Math.min(t + 2.5, timeline.video.duration);
+    const id = `o${Date.now().toString(36)}`;
+    commit({
+      ...timeline,
+      callouts: [
+        ...timeline.callouts,
+        { id, start: t, end, text: "Destaque" },
+      ],
+    });
+    setSelection({ kind: "callout", id });
+  };
+
   const deleteSelection = () => {
     if (!timeline || !selection) return;
     if (selection.kind === "cut") {
@@ -181,6 +196,16 @@ export default function App() {
       commit({
         ...timeline,
         callouts: timeline.callouts.filter((c) => c.id !== selection.id),
+      });
+    } else if (selection.kind === "zoom") {
+      commit({
+        ...timeline,
+        zooms: timeline.zooms.filter((z) => z.id !== selection.id),
+      });
+    } else if (selection.kind === "sfx") {
+      commit({
+        ...timeline,
+        sfx: timeline.sfx.filter((s) => s.id !== selection.id),
       });
     }
     setSelection(null);
@@ -371,6 +396,7 @@ export default function App() {
               Mudo
             </label>
             <button onClick={addCutHere}>+ Corte aqui</button>
+            <button onClick={addCalloutHere}>+ Call-out aqui</button>
             {selection && (
               <button className="danger" onClick={deleteSelection}>
                 Excluir seleção
@@ -395,6 +421,7 @@ export default function App() {
           onChange={commit}
           onDelete={deleteSelection}
           captionStyles={captionStyles}
+          library={library}
         />
       </div>
 

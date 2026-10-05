@@ -12,7 +12,7 @@ interface TimelineProps {
 
 type DragState =
   | {
-      kind: "cut" | "callout";
+      kind: "cut" | "callout" | "zoom" | "sfx";
       id: string;
       edge: "left" | "right" | "move";
       startX: number;
@@ -37,14 +37,21 @@ export default function Timeline({
   const playheadRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
   const drag = useRef<DragState>(null);
+  // estado visual do arraste; o ref mantém o valor atual para o commit
   const [dragTL, setDragTL] = useState<{ id: string; start: number; end: number } | null>(
     null
   );
+  const dragTLRef = useRef<{ id: string; start: number; end: number } | null>(null);
+  // timeline/pxPerSec atuais para os handlers globais (estáveis durante o arraste)
+  const stateRef = useRef({ timeline, pxPerSec: 0, duration: 0.1 });
+  stateRef.current = { timeline, pxPerSec: 0, duration: 0.1 };
 
   const duration = Math.max(0.1, timeline.video.duration);
   const inner = Math.max(200, width - 24);
   const pxPerSec = (inner * zoom) / duration;
   const laneWidth = duration * pxPerSec;
+  stateRef.current.pxPerSec = pxPerSec;
+  stateRef.current.duration = duration;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -77,7 +84,7 @@ export default function Timeline({
 
   const startDrag = (
     e: React.PointerEvent,
-    kind: "cut" | "callout",
+    kind: "cut" | "callout" | "zoom" | "sfx",
     id: string,
     edge: "left" | "right" | "move"
   ) => {
@@ -86,15 +93,23 @@ export default function Timeline({
     const block =
       kind === "cut"
         ? timeline.cuts.find((c) => c.id === id)
-        : timeline.callouts.find((c) => c.id === id);
+        : kind === "callout"
+          ? timeline.callouts.find((c) => c.id === id)
+          : kind === "zoom"
+            ? timeline.zooms.find((z) => z.id === id)
+            : timeline.sfx.find((s) => s.id === id);
     if (!block) return;
+    const orig = {
+      start: "timestamp" in block ? block.timestamp : block.start,
+      end: "end" in block ? block.end : ("timestamp" in block ? block.timestamp : 0),
+    };
     drag.current = {
       kind,
       id,
       edge,
       startX: e.clientX,
-      origStart: block.start,
-      origEnd: block.end,
+      origStart: orig.start,
+      origEnd: orig.end,
     };
     onSelect({ kind, id } as Selection);
     window.addEventListener("pointermove", onDragMove);
@@ -104,39 +119,53 @@ export default function Timeline({
   const onDragMove = (e: PointerEvent) => {
     const d = drag.current;
     if (!d) return;
-    const dt = (e.clientX - d.startX) / pxPerSec;
+    const dt = (e.clientX - d.startX) / stateRef.current.pxPerSec;
     let s = d.origStart;
     let en = d.origEnd;
     const minLen = 0.15;
+    const maxT = stateRef.current.duration;
     if (d.edge === "left") s = clamp(d.origStart + dt, 0, d.origEnd - minLen);
     else if (d.edge === "right")
-      en = clamp(d.origEnd + dt, d.origStart + minLen, duration);
+      en = clamp(d.origEnd + dt, d.origStart + minLen, maxT);
     else {
-      const span = d.origEnd - d.origStart;
-      s = clamp(d.origStart + dt, 0, duration - span);
-      en = s + span;
+      if (d.kind === "sfx") {
+        s = clamp(d.origStart + dt, 0, maxT);
+        en = s;
+      } else {
+        const span = d.origEnd - d.origStart;
+        s = clamp(d.origStart + dt, 0, maxT - span);
+        en = s + span;
+      }
     }
-    setDragTL({ id: d.id, start: s, end: en });
+    const val = { id: d.id, start: s, end: en };
+    dragTLRef.current = val;
+    setDragTL(val);
   };
 
   const onDragUp = () => {
     const d = drag.current;
+    const cur = dragTLRef.current;
     window.removeEventListener("pointermove", onDragMove);
     window.removeEventListener("pointerup", onDragUp);
     drag.current = null;
-    if (d && dragTL) {
-      const next: Timeline = { ...timeline };
+    dragTLRef.current = null;
+    if (d && cur) {
+      const next: Timeline = { ...stateRef.current.timeline };
       if (d.kind === "cut") {
-        next.cuts = timeline.cuts.map((c) =>
-          c.id === dragTL.id
-            ? { ...c, start: round(dragTL.start), end: round(dragTL.end) }
-            : c
+        next.cuts = next.cuts.map((c) =>
+          c.id === cur.id ? { ...c, start: round(cur.start), end: round(cur.end) } : c
+        );
+      } else if (d.kind === "callout") {
+        next.callouts = next.callouts.map((c) =>
+          c.id === cur.id ? { ...c, start: round(cur.start), end: round(cur.end) } : c
+        );
+      } else if (d.kind === "zoom") {
+        next.zooms = next.zooms.map((z) =>
+          z.id === cur.id ? { ...z, start: round(cur.start), end: round(cur.end) } : z
         );
       } else {
-        next.callouts = timeline.callouts.map((c) =>
-          c.id === dragTL.id
-            ? { ...c, start: round(dragTL.start), end: round(dragTL.end) }
-            : c
+        next.sfx = next.sfx.map((s) =>
+          s.id === cur.id ? { ...s, timestamp: round(cur.start) } : s
         );
       }
       onCommit(next);
@@ -265,11 +294,52 @@ export default function Timeline({
         </div>
 
         <div
+          className="track zoom-track"
+          style={{ height: 26 }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).dataset.block) return;
+            seekFromEvent(e);
+          }}
+        >
+          {timeline.zooms.map((z) => {
+            const d = dragBlock(z.id);
+            const start = d ? d.start : z.start;
+            const end = d ? d.end : z.end;
+            return (
+              <div
+                key={z.id}
+                data-block="1"
+                className={`mini-block zoomb ${isSelected("zoom", z.id) ? "selected" : ""}`}
+                style={{
+                  left: start * pxPerSec,
+                  width: Math.max(8, (end - start) * pxPerSec),
+                }}
+                title={`Zoom ${Math.round(z.intensity * 100)}% @ ${fmt(z.start)}`}
+                onPointerDown={(e) => startDrag(e, "zoom", z.id, "move")}
+              >
+                <div
+                  className="handle left"
+                  onPointerDown={(e) => startDrag(e, "zoom", z.id, "left")}
+                />
+                <span className="mini-label">zoom</span>
+                <div
+                  className="handle right"
+                  onPointerDown={(e) => startDrag(e, "zoom", z.id, "right")}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div
           className="track music-track"
           style={{ height: 26 }}
-          onPointerDown={seekFromEvent}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).dataset.block) return;
+            seekFromEvent(e);
+          }}
         >
-          {timeline.music.path && (
+          {timeline.music.path ? (
             <div
               className="mini-block music"
               style={{ left: 0, width: laneWidth }}
@@ -281,18 +351,42 @@ export default function Timeline({
             >
               <span className="mini-label">{timeline.music.label || "música"}</span>
             </div>
+          ) : (
+            <div
+              className="mini-block music empty"
+              style={{ left: 0, width: laneWidth }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                onSelect({ kind: "music" });
+              }}
+            >
+              <span className="mini-label">+ música de fundo (escolha na biblioteca)</span>
+            </div>
           )}
         </div>
 
-        <div className="track sfx-track" style={{ height: 22 }}>
-          {timeline.sfx.map((s) => (
-            <div
-              key={s.id}
-              className="sfx-marker"
-              style={{ left: s.timestamp * pxPerSec }}
-              title={`${s.kind} @ ${fmt(s.timestamp)}`}
-            />
-          ))}
+        <div
+          className="track sfx-track"
+          style={{ height: 24 }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).dataset.block) return;
+            seekFromEvent(e);
+          }}
+        >
+          {timeline.sfx.map((s) => {
+            const d = dragBlock(s.id);
+            const ts = d ? d.start : s.timestamp;
+            return (
+              <div
+                key={s.id}
+                data-block="1"
+                className={`sfx-marker ${isSelected("sfx", s.id) ? "selected" : ""}`}
+                style={{ left: ts * pxPerSec }}
+                title={`SFX ${s.kind} @ ${fmt(s.timestamp)} — arraste para mover`}
+                onPointerDown={(e) => startDrag(e, "sfx", s.id, "move")}
+              />
+            );
+          })}
         </div>
 
         <div className="playhead" ref={playheadRef} />

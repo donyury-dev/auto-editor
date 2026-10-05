@@ -625,6 +625,21 @@ button.ghost:hover {
   background: #35d07f33;
   border: 1px solid #35d07f;
 }
+.mini-block.music.empty {
+  background: transparent;
+  border: 1px dashed #35d07f66;
+}
+.mini-block.music.empty .mini-label {
+  color: #35d07f99;
+}
+.mini-block.zoomb {
+  background: #b06bff44;
+  border: 1px solid #b06bff;
+  cursor: grab;
+}
+.mini-block.zoomb.selected {
+  background: #b06bffaa;
+}
 .mini-label {
   font-size: 10px;
   color: var(--text);
@@ -635,10 +650,15 @@ button.ghost:hover {
 .sfx-marker {
   position: absolute;
   top: 4px;
-  width: 6px;
-  height: 14px;
+  width: 10px;
+  height: 16px;
   background: #b06bff;
   border-radius: 2px;
+  cursor: grab;
+}
+.sfx-marker.selected {
+  background: #e0c2ff;
+  box-shadow: 0 0 6px #b06bff;
 }
 .playhead {
   position: absolute;
