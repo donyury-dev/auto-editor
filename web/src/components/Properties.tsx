@@ -127,6 +127,20 @@ export default function Properties({
             onChange(patchKeyword(timeline, kw.id, e.target.value))
           }
         />
+        <h3>Efeito</h3>
+        <select
+          value={kw.style || ""}
+          onChange={(e) =>
+            onChange(patchKeywordStyle(timeline, kw.id, e.target.value))
+          }
+        >
+          <option value="">Automático (varia como no anúncio)</option>
+          <option value="travessia">Travessia 3D (atravessa a cena)</option>
+          <option value="quebra">Letras quebrando (cor letra a letra)</option>
+          <option value="grifo">Grifo (marca-texto laranja)</option>
+          <option value="tremor">Tremor</option>
+          <option value="impacto">Impacto vermelho</option>
+        </select>
         <Num label="Início (s)" value={kw.start} min={0} max={timeline.video.duration}
           onChange={(v) => onChange(patchKeywordTime(timeline, kw.id, { start: v }))} />
         <Num label="Fim (s)" value={kw.end} min={0} max={timeline.video.duration}
@@ -543,6 +557,13 @@ function patchKeyword(t: Timeline, id: string, text: string): Timeline {
   return {
     ...t,
     keywords: t.keywords.map((k) => (k.id === id ? { ...k, text } : k)),
+  };
+}
+
+function patchKeywordStyle(t: Timeline, id: string, style: string): Timeline {
+  return {
+    ...t,
+    keywords: t.keywords.map((k) => (k.id === id ? { ...k, style } : k)),
   };
 }
 

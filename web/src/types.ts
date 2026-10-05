@@ -39,6 +39,7 @@ export interface KeywordBlock {
   start: number;
   end: number;
   text: string;
+  style?: string; // travessia | quebra | grifo | tremor | impacto | ""
 }
 
 export interface SfxBlock {

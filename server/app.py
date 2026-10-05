@@ -179,6 +179,7 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
             "start": round(k.start, 3),
             "end": round(k.end, 3),
             "text": k.word,
+            "style": k.style,
         }
         for i, k in enumerate(ctx.edit_plan.keywords)
     ]
@@ -318,7 +319,7 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         if float(o.get("end", 0)) > float(o.get("start", 0))
     ]
 
-    # palavras-chave editadas pelo usuário (texto/timing)
+    # palavras-chave editadas pelo usuário (texto/timing/efeito)
     from core.edit_plan import KeywordPop
 
     ctx.edit_plan.keywords = [
@@ -326,6 +327,7 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
             start=float(k["start"]),
             end=float(k["end"]),
             word=str(k.get("text", "")).strip(),
+            style=str(k.get("style", "") or ""),
         )
         for k in tl.get("keywords", [])
         if float(k.get("end", 0)) > float(k.get("start", 0))
@@ -441,6 +443,8 @@ def _render_worker(state: ProjectState) -> None:
         state.emit_progress(overall, step, msg)
 
     try:
+        # re-render: intermediários do temp já foram limpos; refaz do início
+        state.ctx.edited_path = None
         _apply_timeline_to_ctx(state)
         assert state.ctx is not None
         build_render_pipeline().run(state.ctx, progress)

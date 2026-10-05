@@ -1,10 +1,16 @@
 """Palavras-chave em pop gigante (estilo anúncio).
 
-Escolhe as palavras mais fortes da fala e gera uma camada ASS com o
-efeito "pop 3D": a palavra estoura na tela com escala crescente
-(overshoot + crescimento contínuo = sensação de profundidade), contorno
-branco grosso e sombra — igual ao "animação" / "agora" do vídeo de
-referência.
+Escolhe as palavras mais fortes da fala e gera uma camada ASS com
+efeitos variados, como no vídeo de referência:
+
+- travessia: surge pequena/embaçada e atravessa a cena crescendo (3D)
+- quebra: as letras aparecem uma a uma, mudando de cor (karaoke \kf)
+- grifo: palavra branca com marca-texto laranja desenhado por baixo
+- tremor: palavra que treme/pulsa depois de entrar
+- impacto: palavra vermelha que desaba na tela (slam)
+
+O tamanho é medido com a fonte Anton real (PIL) e reduzido por palavra
+pra nunca estourar a largura do frame.
 
 `pick_keywords` é pura e testável; `write_keywords_ass` só escreve texto.
 """
@@ -13,7 +19,6 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
 from pathlib import Path
 
 from core.edit_plan import KeywordPop
@@ -25,6 +30,29 @@ MAX_KEYWORDS = 6  # teto por vídeo
 MIN_GAP_S = 4.0  # mínimo entre um pop e outro
 MIN_WORD_LEN = 4  # palavras muito curtas não chamam atenção
 POP_DURATION_S = 1.5  # tempo em tela
+
+# efeitos disponíveis ("" no keyword = ciclo automático)
+EFFECT_STYLES = ["travessia", "quebra", "grifo", "tremor", "impacto"]
+
+_FONT_PATH = (
+    Path(__file__).resolve().parent.parent / "assets" / "fonts" / "Anton-Regular.ttf"
+)
+_font_cache: dict[int, object] = {}
+
+
+def _measure_text(text: str, size: int) -> float:
+    """Largura exata do texto na Anton (PIL). Fallback: estimativa."""
+    try:
+        from PIL import ImageFont
+
+        font = _font_cache.get(size)
+        if font is None:
+            font = ImageFont.truetype(str(_FONT_PATH), size)
+            _font_cache[size] = font
+        return float(font.getlength(text))
+    except Exception:  # pragma: no cover - fallback sem PIL/fonte
+        return len(text) * 0.66 * size
+
 
 # palavras funcionais em português que não rendem destaque
 STOPWORDS_PT = {
@@ -62,7 +90,8 @@ def pick_keywords(
     `words` são objetos/dicts com start/end/text (palavras do Whisper).
     Critérios: palavra forte (não-stopword, tamanho mínimo), espaçadas
     pelo vídeo (sem amontoar pops), primeira ocorrência de cada palavra e
-    palavras mais longas ganham prioridade.
+    palavras mais longas ganham prioridade. Efeitos variados ciclo entre
+    os estilos (cada pop tem uma cara, como no anúncio).
     """
     if not words:
         return []
@@ -103,6 +132,9 @@ def pick_keywords(
         chosen.append(KeywordPop(start=start, end=end, word=tok))
 
     chosen.sort(key=lambda k: k.start)
+    for i, kw in enumerate(chosen):
+        if not kw.style:
+            kw.style = EFFECT_STYLES[i % len(EFFECT_STYLES)]
     return chosen
 
 
@@ -129,6 +161,135 @@ Style: Keyword,{font_name},{font_size},{primary},&H00FFFFFF,&H00FFFFFF,&HA000000
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
+ORANGE = rgb_to_ass("#FF6B2B")
+WHITE = "&HFFFFFF&"
+DARK = "&H1A1A1A&"
+RED = rgb_to_ass("#E6392B")
+
+
+def _fit_size(word: str, base_size: int, usable_w: float, grow: float) -> int:
+    """Maior tamanho de fonte em que a palavra cabe (com folga de growth)."""
+    size = base_size
+    while size > base_size // 3 and _measure_text(word, size) * grow > usable_w:
+        size = int(size * 0.92)
+    return size
+
+
+def _event_travessia(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
+    """Surge pequena/embaçada e atravessa a cena crescendo (profundidade)."""
+    dur_ms = int((kw.end - kw.start) * 1000)
+    grow_end = max(500, dur_ms - 250)
+    cy = int(play_h * 0.4)
+    sx, ex = int(play_w * 0.56), int(play_w * 0.44)
+    tags = (
+        f"{{\\an5\\fs{size}\\move({sx},{cy},{ex},{cy},0,{dur_ms})"
+        f"\\c{ORANGE}\\3c{WHITE}\\4c&H000000&"
+        f"\\blur8\\fscx20\\fscy20"
+        f"\\t(0,{int(dur_ms * 0.22)},\\fscx105\\fscy105\\blur1.2)"
+        f"\\t({int(dur_ms * 0.22)},{int(dur_ms * 0.3)},"
+        f"\\fscx100\\fscy100\\blur0)"
+        f"\\t({int(dur_ms * 0.3)},{grow_end},\\fscx118\\fscy118)"
+        f"\\fad(80,220)}}"
+    )
+    return tags
+
+
+def _event_quebra(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
+    """Letras aparecem uma a uma, mudando de cor (karaoke)."""
+    dur_ms = int((kw.end - kw.start) * 1000)
+    sweep_ms = min(900, int(dur_ms * 0.55))
+    per_letter = max(1, sweep_ms // max(1, len(word)) // 10)  # centissegundos
+    kar = "".join(f"\\k{per_letter}" for _ in word)
+    cy = int(play_h * 0.4)
+    tags = (
+        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"\\1c{ORANGE}\\2c{WHITE}\\3c{DARK}\\4c&H000000&"
+        f"{kar}"
+        f"\\fscx30\\fscy30\\t(0,180,\\fscx108\\fscy108)"
+        f"\\t(180,280,\\fscx100\\fscy100)"
+        f"\\fad(50,200)}}"
+    )
+    return tags
+
+
+def _event_grifo(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
+    """Palavra branca com marca-texto laranja desenhado por baixo.
+
+    A barra é a própria palavra achatada (fscy baixo) em laranja — assim
+    ela acompanha a largura exata do texto em qualquer tamanho de fonte.
+    """
+    dur_ms = int((kw.end - kw.start) * 1000)
+    cy = int(play_h * 0.4)
+    bar_h = max(6, int(size * 0.07))
+    # barra (layer 20, atrás do texto): cresce como um grifo de caneta
+    bar = (
+        f"Dialogue: 20,{_fmt_time(kw.start + 0.12)},{_fmt_time(kw.end)},"
+        f"Keyword,,0,0,0,,{{\\an5\\fs{size}"
+        f"\\pos({play_w // 2},{cy + int(size * 0.40)})"
+        f"\\1c{ORANGE}\\3c{ORANGE}\\bord{bar_h}"
+        f"\\fscx0\\fscy8"
+        f"\\t(0,{min(420, dur_ms // 3)},\\fscx100)\\fad(0,150)}}"
+        f"{word}{{\\r}}"
+    )
+    text = (
+        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"\\1c{WHITE}\\3c{DARK}\\4c&H000000&"
+        f"\\fscx40\\fscy40\\t(0,160,\\fscx104\\fscy104)"
+        f"\\t(160,260,\\fscx100\\fscy100)\\fad(40,180)}}"
+    )
+    return bar + "\n" + f"Dialogue: 30,{_fmt_time(kw.start)},{_fmt_time(kw.end)},Keyword,,0,0,0,,{text}{word}{{\\r}}"
+
+
+def _event_tremor(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
+    """Palavra branca que entra e depois treme/pulsa."""
+    dur_ms = int((kw.end - kw.start) * 1000)
+    shake_ms = max(400, dur_ms - 350)
+    step = 110
+    shake = ""
+    t = 0
+    signs = [3, -3, 2, -2, 3, -1]
+    i = 0
+    while t < shake_ms:
+        end = min(t + step, shake_ms)
+        shake += f"\\t({t},{end},\\frz{signs[i % len(signs)]}\\fscy{102 if i % 2 else 98})"
+        t += step
+        i += 1
+    cy = int(play_h * 0.4)
+    tags = (
+        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"\\1c{WHITE}\\3c{DARK}\\4c&H000000&"
+        f"\\fscx20\\fscy20\\t(0,200,\\fscx112\\fscy112)"
+        f"\\t(200,300,\\fscx100\\fscy100){shake}"
+        f"\\fad(60,200)}}"
+    )
+    return tags
+
+
+def _event_impacto(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
+    """Palavra vermelha que desaba na tela (slam)."""
+    cy = int(play_h * 0.4)
+    dur_ms = int((kw.end - kw.start) * 1000)
+    tags = (
+        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"\\1c{RED}\\3c{WHITE}\\4c&H000000&"
+        f"\\fscx310\\fscy310\\blur6"
+        f"\\t(0,140,\\fscx96\\fscy96\\blur0)"
+        f"\\t(140,240,\\fscx104\\fscy104)"
+        f"\\t(240,340,\\fscx100\\fscy100)"
+        f"\\t(340,{max(500, dur_ms - 300)},\\fscx106\\fscy106)"
+        f"\\fad(0,220)}}"
+    )
+    return tags
+
+
+_EVENTS = {
+    "travessia": _event_travessia,
+    "quebra": _event_quebra,
+    "grifo": _event_grifo,
+    "tremor": _event_tremor,
+    "impacto": _event_impacto,
+}
+
 
 def write_keywords_ass(
     keywords: list[KeywordPop],
@@ -136,18 +297,10 @@ def write_keywords_ass(
     play_w: int,
     play_h: int,
 ) -> Path:
-    """Camada ASS com o pop das palavras-chave.
-
-    Efeito travessia: a palavra surge pequena e embaçada (como se viesse
-    de trás do enquadramento), atravessa a cena deslizando e crescendo —
-    sensação de profundidade/parte do cenário. O tamanho é auto-ajustado
-    por palavra pra nunca estourar a largura do frame.
-    """
+    """Camada ASS com os pops das palavras-chave (efeitos variados)."""
     vertical = play_h >= play_w
     base_size = int(play_w * (0.17 if vertical else 0.11))
     usable_w = play_w * 0.92
-    # Anton maiúscula: largura média ≈ 0.56 × tamanho da fonte
-    char_ratio = 0.56
 
     lines = [
         _HEADER.format(
@@ -155,7 +308,7 @@ def write_keywords_ass(
             play_h=play_h,
             font_name="Anton",
             font_size=base_size,
-            primary=rgb_to_ass("#FF6B2B"),
+            primary=ORANGE,
             outline=max(6, base_size // 14),
         )
     ]
@@ -164,36 +317,18 @@ def write_keywords_ass(
         word = kw.word.strip().upper()
         if not word or kw.end <= kw.start:
             continue
-        # auto-ajuste: reduz a escala pra caber na largura MESMO no ponto
-        # mais largo da animação (+18% de crescimento no final)
-        est_w = len(word) * char_ratio * base_size
-        fit = (
-            min(1.0, usable_w / (est_w * 1.18)) if est_w > 0 else 1.0
-        )
-        fit = max(0.3, fit)
-
-        dur_ms = int((kw.end - kw.start) * 1000)
-        grow_end = max(500, dur_ms - 250)
-        cy = int(play_h * 0.4)
-        # desliza pela cena (direita → esquerda) enquanto cresce
-        sx, ex = int(play_w * 0.56), int(play_w * 0.44)
-        # travessia 3D: começa pequena/embaçada, estoura e segue crescendo
-        tags = (
-            f"{{\\an5\\move({sx},{cy},{ex},{cy},0,{dur_ms})"
-            f"\\c{rgb_to_ass('#FF6B2B')}\\3c&HFFFFFF&\\4c&H000000&"
-            f"\\blur8\\fscx{20 * fit:.0f}\\fscy{20 * fit:.0f}"
-            f"\\t(0,{int(dur_ms * 0.22)},\\fscx{105 * fit:.0f}"
-            f"\\fscy{105 * fit:.0f}\\blur1.2)"
-            f"\\t({int(dur_ms * 0.22)},{int(dur_ms * 0.3)},"
-            f"\\fscx{100 * fit:.0f}\\fscy{100 * fit:.0f}\\blur0)"
-            f"\\t({int(dur_ms * 0.3)},{grow_end},\\fscx{118 * fit:.0f}"
-            f"\\fscy{118 * fit:.0f})"
-            f"\\fad(80,220)}}"
-        )
-        lines.append(
-            f"Dialogue: 30,{_fmt_time(kw.start)},{_fmt_time(kw.end)},"
-            f"Keyword,,0,0,0,,{tags}{word}{{\\r}}"
-        )
+        style = kw.style if kw.style in _EVENTS else "travessia"
+        # auto-ajuste com a fonte real: cada efeito tem um fator de growth
+        grow = 1.18 if style in ("travessia", "impacto", "tremor") else 1.0
+        size = _fit_size(word, base_size, usable_w, grow)
+        if style == "grifo":
+            lines.append(_event_grifo(kw, word, size, play_w, play_h))
+        else:
+            tags = _EVENTS[style](kw, word, size, play_w, play_h)
+            lines.append(
+                f"Dialogue: 30,{_fmt_time(kw.start)},{_fmt_time(kw.end)},"
+                f"Keyword,,0,0,0,,{tags}{word}{{\\r}}"
+            )
         count += 1
 
     out_path = Path(out_path)

@@ -68,13 +68,19 @@ class KeywordPop:
     start: float
     end: float
     word: str = ""
+    style: str = ""  # "" = escolha automática (ciclo de efeitos)
 
     @property
     def duration(self) -> float:
         return self.end - self.start
 
     def to_dict(self) -> dict:
-        return {"start": self.start, "end": self.end, "word": self.word}
+        return {
+            "start": self.start,
+            "end": self.end,
+            "word": self.word,
+            "style": self.style,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "KeywordPop":
@@ -82,6 +88,7 @@ class KeywordPop:
             start=float(data["start"]),
             end=float(data["end"]),
             word=str(data.get("word", "")),
+            style=str(data.get("style", "") or ""),
         )
 
 

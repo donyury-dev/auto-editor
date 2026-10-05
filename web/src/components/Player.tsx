@@ -145,8 +145,7 @@ export default function Player({
         call.style.display = "none";
       }
     }
-    // palavra-chave em pop gigante com travessia (estilo anúncio):
-    // surge pequena/embaçada, atravessa a cena e cresce (profundidade)
+    // palavra-chave em pop gigante (estilo anúncio) com efeitos variados
     const kwEl = keywordRef.current;
     if (kwEl) {
       const kw = timeline.keywords.find(
@@ -155,49 +154,69 @@ export default function Player({
       if (kw) {
         const dur = Math.max(0.4, kw.end - kw.start);
         const p = Math.min(1, Math.max(0, (t - kw.start) / dur));
-        // progressões espelhando a camada ASS do render
-        const scale =
-          p < 0.22
-            ? 0.2 + (p / 0.22) * 0.85
-            : p < 0.3
-              ? 1.05 - ((p - 0.22) / 0.08) * 0.05
-              : 1.0 + Math.min(0.18, ((p - 0.3) / 0.58) * 0.18);
-        const blur =
-          p < 0.22 ? 8 * (1 - p / 0.22) : p < 0.3 ? 1.2 * (1 - (p - 0.22) / 0.08) : 0;
-        const tx =
-          p < 0.22
-            ? 6 - (p / 0.22) * 4
-            : p < 0.3
-              ? 2 - ((p - 0.22) / 0.08) * 2
-              : 2 - Math.min(1, (p - 0.3) / 0.58) * 8;
-        const opacity =
-          p < 0.15 ? p / 0.15 : p > 0.9 ? Math.max(0, (1 - p) / 0.1) : 1;
-        kwEl.innerHTML = `<span style="display:inline-block;transform:scale(${(scale * fitScale(kwEl, kw.text.toUpperCase())).toFixed(3)}) translateX(${tx.toFixed(2)}%);filter:blur(${blur.toFixed(1)}px);opacity:${opacity.toFixed(3)}">${escapeHtml(kw.text.toUpperCase())}</span>`;
+        const style = kw.style || "travessia";
+        kwEl.className = `keyword-overlay kwfx-${style}`;
+        const text = escapeHtml(kw.text.toUpperCase());
+        if (style === "travessia") {
+          const scale =
+            p < 0.22
+              ? 0.2 + (p / 0.22) * 0.85
+              : p < 0.3
+                ? 1.05 - ((p - 0.22) / 0.08) * 0.05
+                : 1.0 + Math.min(0.18, ((p - 0.3) / 0.58) * 0.18);
+          const blur =
+            p < 0.22 ? 8 * (1 - p / 0.22) : p < 0.3 ? 1.2 * (1 - (p - 0.22) / 0.08) : 0;
+          const tx =
+            p < 0.22
+              ? 6 - (p / 0.22) * 4
+              : p < 0.3
+                ? 2 - ((p - 0.22) / 0.08) * 2
+                : 2 - Math.min(1, (p - 0.3) / 0.58) * 8;
+          const opacity = p < 0.15 ? p / 0.15 : p > 0.9 ? Math.max(0, (1 - p) / 0.1) : 1;
+          kwEl.innerHTML = `<span style="transform:scale(${scale.toFixed(3)}) translateX(${tx.toFixed(2)}%);filter:blur(${blur.toFixed(1)}px);opacity:${opacity.toFixed(3)}">${text}</span>`;
+        } else if (style === "impacto") {
+          const scale =
+            p < 0.09
+              ? 3.1 - (p / 0.09) * 2.14
+              : p < 0.16
+                ? 0.96 + ((p - 0.09) / 0.07) * 0.08
+                : p < 0.23
+                  ? 1.04 - ((p - 0.16) / 0.07) * 0.04
+                  : 1.0 + Math.min(0.06, ((p - 0.23) / 0.6) * 0.06);
+          const blur = p < 0.09 ? 6 * (1 - p / 0.09) : 0;
+          kwEl.innerHTML = `<span style="transform:scale(${scale.toFixed(3)});filter:blur(${blur.toFixed(1)}px)">${text}</span>`;
+        } else if (style === "quebra") {
+          // letras "quebrando": cor varre a palavra letra a letra
+          const letters = kw.text.toUpperCase().split("");
+          const sweep = Math.min(0.55, 1.1 / letters.length);
+          const n = Math.min(letters.length, Math.max(1, Math.floor(p / sweep)));
+          const sweepPct = Math.round((n / letters.length) * 100);
+          kwEl.innerHTML = `<span style="background:linear-gradient(90deg,#ff6b2b ${sweepPct}%,#ffffff ${sweepPct}%);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-stroke:0.5cqh #1a1a1a">${text}</span>`;
+        } else if (style === "grifo") {
+          const barW = Math.min(106, (p / 0.28) * 106);
+          kwEl.innerHTML = `<span style="background:linear-gradient(90deg,rgba(255,107,43,0.85) ${barW.toFixed(0)}%,rgba(255,107,43,0) ${barW.toFixed(0)}%);background-size:100% 36%;background-position:50% 88%;background-repeat:no-repeat;color:#ffffff;-webkit-text-stroke:0.5cqh #1a1a1a">${text}</span>`;
+        } else {
+          // tremor
+          const scale = p < 0.14 ? 0.2 + (p / 0.14) * 0.92 : p < 0.2 ? 1.12 - ((p - 0.14) / 0.06) * 0.12 : 1;
+          const rot = p >= 0.2 ? Math.sin(p * 60) * 2.5 : 0;
+          kwEl.innerHTML = `<span style="transform:scale(${scale.toFixed(3)}) rotate(${rot.toFixed(2)}deg)">${text}</span>`;
+        }
+        // auto-ajuste exato: mede o span real (fonte já carregada) e
+        // corrige se estourar a largura
+        const span = kwEl.firstElementChild as HTMLElement | null;
+        if (span) {
+          const maxW = kwEl.clientWidth * 0.94;
+          const w = span.offsetWidth;
+          if (w > 0 && w > maxW) {
+            const fix = maxW / w;
+            span.style.transform = `${span.style.transform || ""} scale(${fix.toFixed(3)})`;
+          }
+        }
         kwEl.style.display = "block";
       } else {
         kwEl.style.display = "none";
       }
     }
-  }
-
-  // auto-ajuste: devolve o fator de escala pra palavra caber na largura
-  function fitScale(el: HTMLDivElement, text: string): number {
-    const maxW = el.clientWidth * 0.94;
-    if (maxW <= 0) return 1;
-    // largura aproximada: usa medição via canvas para ser fiel à fonte
-    const canvas = fitScaleCanvas();
-    const ctx = canvas.getContext("2d");
-    const style = getComputedStyle(el);
-    ctx!.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    const width = ctx!.measureText(text).width;
-    if (width <= maxW) return 1;
-    return Math.max(0.3, maxW / width);
-  }
-
-  let _fitCanvas: HTMLCanvasElement | null = null;
-  function fitScaleCanvas(): HTMLCanvasElement {
-    if (!_fitCanvas) _fitCanvas = document.createElement("canvas");
-    return _fitCanvas;
   }
 
   return (

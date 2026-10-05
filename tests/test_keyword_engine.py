@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core.edit_plan import EditPlan, KeywordPop
-from core.keyword_engine import pick_keywords, write_keywords_ass
+from core.keyword_engine import EFFECT_STYLES, pick_keywords, write_keywords_ass
 
 
 def W(text: str, start: float, end: float) -> dict:
@@ -54,10 +54,23 @@ def test_pick_keywords_ordena_por_tempo():
     assert [k.start for k in kws] == sorted(k.start for k in kws)
 
 
-def test_write_keywords_ass_gera_dialogos(tmp_path):
+def test_pick_keywords_ciclo_de_efeitos():
+    words = [
+        W("tecnologia", 0.5, 1.2),
+        W("transformar", 5.5, 6.2),
+        W("produtividade", 10.5, 11.4),
+        W("realidade", 15.5, 16.2),
+        W("objetivos", 20.5, 21.2),
+    ]
+    kws = pick_keywords(words, duration=60.0)
+    styles = [k.style for k in kws]
+    assert styles == EFFECT_STYLES  # primeiro ciclo completo, sem repetir
+
+
+def test_write_keywords_ass_travessia(tmp_path):
     kws = [
-        KeywordPop(start=1.0, end=2.5, word="tecnologia"),
-        KeywordPop(start=6.0, end=7.5, word="impacto"),
+        KeywordPop(start=1.0, end=2.5, word="tecnologia", style="travessia"),
+        KeywordPop(start=6.0, end=7.5, word="impacto", style="travessia"),
     ]
     out = write_keywords_ass(kws, tmp_path / "kw.ass", 1080, 1920)
     text = out.read_text(encoding="utf-8")
@@ -71,26 +84,48 @@ def test_write_keywords_ass_gera_dialogos(tmp_path):
     assert "\\fad(80,220)" in text
 
 
+def test_write_keywords_ass_estilos_variados(tmp_path):
+    kws = [
+        KeywordPop(start=1.0, end=2.5, word="agora", style="grifo"),
+        KeywordPop(start=6.0, end=7.5, word="erro", style="impacto"),
+        KeywordPop(start=11.0, end=12.5, word="vamos", style="tremor"),
+        KeywordPop(start=16.0, end=17.5, word="mudo", style="quebra"),
+    ]
+    out = write_keywords_ass(kws, tmp_path / "kw.ass", 1080, 1920)
+    text = out.read_text(encoding="utf-8")
+    # grifo: barra = palavra achatada em laranja por baixo do texto branco
+    assert "\\fscy8" in text
+    assert "&HFFFFFF&" in text
+    # impacto: vermelho + slam (escala inicial grande)
+    assert "2b39e6" in text.lower()  # vermelho em BGR (formato ASS)
+    assert "\\fscx310" in text
+    # tremor: rotação oscilante
+    assert "\\frz3" in text
+    # quebra: karaoke por letra
+    assert "\\k1" in text or "\\k2" in text or "\\k3" in text
+
+
 def test_write_keywords_ass_auto_ajuste_palavra_longa(tmp_path):
-    curta = KeywordPop(start=1.0, end=2.5, word="casa")
-    longa = KeywordPop(start=5.0, end=6.5, word="transformar")
+    curta = KeywordPop(start=1.0, end=2.5, word="casa", style="travessia")
+    longa = KeywordPop(
+        start=5.0, end=6.5, word="transformar", style="travessia"
+    )
     out = write_keywords_ass([curta, longa], tmp_path / "kw.ass", 1080, 1920)
     text = out.read_text(encoding="utf-8")
     import re
 
-    scales = re.findall(r"\\blur8\\fscx(\d+)\\fscy", text)
-    # escala inicial da palavra longa é menor que a da curta
-    assert int(scales[0]) > int(scales[1])
-    # e mesmo reduzida, a palavra longa cabe na largura do frame
     longa_line = next(
         line for line in text.splitlines() if "TRANSFORMAR" in line
     )
-    final_scale = max(
-        int(m)
-        for m in re.findall(r"\\t\(\d+,\d+,\\fscx(\d+)", longa_line)
-    )
-    est_w = 11 * 0.56 * 183 * (final_scale / 100)
-    assert est_w <= 1080 * 0.95
+    curta_line = next(line for line in text.splitlines() if "CASA" in line)
+    fs_longa = int(re.search(r"\\fs(\d+)", longa_line).group(1))
+    fs_curta = int(re.search(r"\\fs(\d+)", curta_line).group(1))
+    assert fs_longa < fs_curta  # palavra longa recebe fonte menor
+    # largura da longa no ponto máximo (118%) cabe no frame
+    from core.keyword_engine import _measure_text
+
+    max_w = _measure_text("TRANSFORMAR", fs_longa) * 1.18
+    assert max_w <= 1080 * 0.95
 
 
 def test_write_keywords_ass_vazio(tmp_path):
@@ -100,10 +135,13 @@ def test_write_keywords_ass_vazio(tmp_path):
 
 def test_edit_plan_keywords_roundtrip():
     plan = EditPlan(
-        keywords=[KeywordPop(start=1.0, end=2.5, word="tecnologia")],
+        keywords=[
+            KeywordPop(start=1.0, end=2.5, word="tecnologia", style="grifo")
+        ],
         duration=10.0,
     )
     restored = EditPlan.from_dict(plan.to_dict())
     assert restored.keywords[0].word == "tecnologia"
     assert restored.keywords[0].start == 1.0
     assert restored.keywords[0].end == 2.5
+    assert restored.keywords[0].style == "grifo"
