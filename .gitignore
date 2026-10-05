@@ -10,13 +10,17 @@ logs/
 cache/
 
 # Binários grandes baixados pelos scripts de build (não versionados)
-bin/ffmpeg/*.exe
-bin/ffmpeg/*.dll
+bin/ffmpeg/*
+!bin/ffmpeg/.gitkeep
 bin/ollama/
 models/whisper/
 assets/music/*.mp3
 assets/music/*.wav
 ollama_models/
+
+# Frontend (Node)
+node_modules/
+*.tsbuildinfo
 
 # Artefatos de build/distribuição
 build/

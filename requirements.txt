@@ -9,3 +9,7 @@ python-dotenv>=1.0.1
 opencv-python-headless>=4.8
 requests>=2.31.0
 pillow>=10.0.0
+# Servidor web (editor no navegador)
+fastapi>=0.115
+uvicorn>=0.30
+sse-starlette>=2.0

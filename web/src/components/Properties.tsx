@@ -1,0 +1,223 @@
+import { useEffect, useState } from "react";
+import type { Selection, Timeline } from "../types";
+
+interface PropertiesProps {
+  timeline: Timeline;
+  selection: Selection;
+  onChange: (t: Timeline) => void;
+  onDelete: () => void;
+}
+
+/** Painel de propriedades do item selecionado (corte/legenda/call-out/música). */
+export default function Properties({
+  timeline,
+  selection,
+  onChange,
+  onDelete,
+}: PropertiesProps) {
+  if (!selection) {
+    return (
+      <aside className="properties">
+        <h3>Propriedades</h3>
+        <p className="hint">
+          Selecione um corte, legenda ou call-out na timeline para editar.
+        </p>
+        <TransicaoPicker timeline={timeline} onChange={onChange} />
+      </aside>
+    );
+  }
+
+  if (selection.kind === "cut") {
+    const cut = timeline.cuts.find((c) => c.id === selection.id);
+    if (!cut) return null;
+    return (
+      <aside className="properties">
+        <h3>Corte</h3>
+        <Num label="Início (s)" value={cut.start} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchCut(timeline, cut.id, { start: v }))} />
+        <Num label="Fim (s)" value={cut.end} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchCut(timeline, cut.id, { end: v }))} />
+        {cut.reason && <p className="hint">Motivo: {cut.reason}</p>}
+        <button className="danger" onClick={onDelete}>Remover corte</button>
+      </aside>
+    );
+  }
+
+  if (selection.kind === "caption") {
+    const cap = timeline.captions.find((c) => c.id === selection.id);
+    if (!cap) return null;
+    return (
+      <aside className="properties">
+        <h3>Legenda</h3>
+        <textarea
+          value={cap.text}
+          rows={3}
+          onChange={(e) =>
+            onChange(patchCaption(timeline, cap.id, e.target.value))
+          }
+        />
+        <p className="hint">
+          Corrige erros de transcrição — vale para a prévia e para o render.
+        </p>
+      </aside>
+    );
+  }
+
+  if (selection.kind === "callout") {
+    const co = timeline.callouts.find((c) => c.id === selection.id);
+    if (!co) return null;
+    return (
+      <aside className="properties">
+        <h3>Call-out</h3>
+        <textarea
+          value={co.text}
+          rows={2}
+          maxLength={40}
+          onChange={(e) =>
+            onChange(patchCallout(timeline, co.id, e.target.value))
+          }
+        />
+        <Num label="Início (s)" value={co.start} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchCalloutTime(timeline, co.id, { start: v }))} />
+        <Num label="Fim (s)" value={co.end} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchCalloutTime(timeline, co.id, { end: v }))} />
+        <button className="danger" onClick={onDelete}>Remover call-out</button>
+      </aside>
+    );
+  }
+
+  // música
+  const music = timeline.music;
+  return (
+    <aside className="properties">
+      <h3>Música</h3>
+      <p className="hint">{music.label || "Nenhuma trilha selecionada."}</p>
+      <label>
+        Volume: {Math.round(music.volume * 100)}%
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(music.volume * 100)}
+          onChange={(e) =>
+            onChange({
+              ...timeline,
+              music: { ...music, volume: Number(e.target.value) / 100 },
+            })
+          }
+        />
+      </label>
+      {music.path && (
+        <button className="danger" onClick={() => onChange({ ...timeline, music: { path: null, label: "", volume: 0.25 } })}>
+          Remover música
+        </button>
+      )}
+    </aside>
+  );
+}
+
+function TransicaoPicker({ timeline, onChange }: { timeline: Timeline; onChange: (t: Timeline) => void }) {
+  const [types, setTypes] = useState<string[]>(["corte", "fade", "slideleft", "slideup", "circleopen", "dissolve"]);
+  useEffect(() => {
+    fetch("/api/transitions")
+      .then((r) => r.json())
+      .then((d) => setTypes(d.types))
+      .catch(() => {});
+  }, []);
+  return (
+    <>
+      <h3>Transição</h3>
+      <select
+        value={timeline.transition.type}
+        onChange={(e) =>
+          onChange({ ...timeline, transition: { ...timeline.transition, type: e.target.value } })
+        }
+      >
+        {types.map((t) => (
+          <option key={t} value={t}>{t}</option>
+        ))}
+      </select>
+      <label>
+        Duração: {timeline.transition.duration.toFixed(2)}s
+        <input
+          type="range"
+          min={10}
+          max={80}
+          value={Math.round(timeline.transition.duration * 100)}
+          onChange={(e) =>
+            onChange({
+              ...timeline,
+              transition: { ...timeline.transition, duration: Number(e.target.value) / 100 },
+            })
+          }
+        />
+      </label>
+    </>
+  );
+}
+
+function Num({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <label className="num-field">
+      {label}
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={0.05}
+        value={text ?? value.toFixed(2)}
+        onChange={(e) => {
+          setText(e.target.value);
+          const v = parseFloat(e.target.value.replace(",", "."));
+          if (!Number.isNaN(v)) onChange(Math.min(max, Math.max(min, v)));
+        }}
+        onBlur={() => setText(null)}
+      />
+    </label>
+  );
+}
+
+function patchCut(t: Timeline, id: string, patch: { start?: number; end?: number }): Timeline {
+  return {
+    ...t,
+    cuts: t.cuts
+      .map((c) => (c.id === id ? { ...c, ...patch } : c))
+      .sort((a, b) => a.start - b.start),
+  };
+}
+
+function patchCaption(t: Timeline, id: string, text: string): Timeline {
+  return {
+    ...t,
+    captions: t.captions.map((c) => (c.id === id ? { ...c, text } : c)),
+  };
+}
+
+function patchCallout(t: Timeline, id: string, text: string): Timeline {
+  return {
+    ...t,
+    callouts: t.callouts.map((c) => (c.id === id ? { ...c, text } : c)),
+  };
+}
+
+function patchCalloutTime(t: Timeline, id: string, patch: { start?: number; end?: number }): Timeline {
+  return {
+    ...t,
+    callouts: t.callouts
+      .map((c) => (c.id === id ? { ...c, ...patch } : c))
+      .filter((c) => c.end > c.start),
+  };
+}

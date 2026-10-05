@@ -1,0 +1,344 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, openSSE } from "./api";
+import type { Library, LibraryItem, Selection, Timeline } from "./types";
+import Player from "./components/Player";
+import TimelineView from "./components/Timeline";
+import LibraryPanel from "./components/Library";
+import PropertiesPanel from "./components/Properties";
+import FileBrowser from "./components/FileBrowser";
+
+type Screen = "home" | "busy" | "editor";
+
+export default function App() {
+  const [screen, setScreen] = useState<Screen>("home");
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [progress, setProgress] = useState({ overall: 0, step: "", msg: "" });
+  const [timeline, setTimeline] = useState<Timeline | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
+  const [library, setLibrary] = useState<Library | null>(null);
+  const [resultMode, setResultMode] = useState(true);
+  const [muted, setMuted] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [showBrowser, setShowBrowser] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [renderDone, setRenderDone] = useState(false);
+  const [error, setError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const closeSSE = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    api.library().then(setLibrary).catch(() => {});
+  }, [projectId]);
+
+  // Reabre um projeto existente via URL: /?p=<projectId>
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("p");
+    if (!id) return;
+    setProjectId(id);
+    api
+      .timeline(id)
+      .then((res) => {
+        setTimeline(res.timeline);
+        setScreen("editor");
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(
+    () => () => {
+      closeSSE.current?.();
+    },
+    []
+  );
+
+  const startSSE = useCallback((id: string, mode: "analyze" | "render") => {
+    closeSSE.current?.();
+    closeSSE.current = openSSE(
+      id,
+      {
+        progress: (d: any) =>
+          setProgress({ overall: d.overall, step: d.step, msg: d.msg }),
+        timeline: (d: any) => {
+          setTimeline(d.timeline);
+          setScreen("editor");
+        },
+        status: (d: any) => {
+          if (d.status === "ready") setScreen("editor");
+        },
+        done: () => {
+          setRendering(false);
+          setRenderDone(true);
+        },
+        error: (d: any) => {
+          setError(d.message);
+          setRendering(false);
+        },
+      },
+      () => {}
+    );
+  }, []);
+
+  const pickVideo = async (path: string) => {
+    setShowBrowser(false);
+    setError("");
+    try {
+      const p = await api.createProject(path);
+      setProjectId(p.id);
+      setScreen("busy");
+      setProgress({ overall: 0, step: "", msg: "iniciando…" });
+      startSSE(p.id, "analyze");
+      await api.analyze(p.id);
+    } catch (e: any) {
+      setError(String(e.message || e));
+      setScreen("home");
+    }
+  };
+
+  const commit = async (next: Timeline) => {
+    setTimeline(next);
+    if (projectId) api.saveTimeline(projectId, next).catch(() => {});
+  };
+
+  const doRender = async () => {
+    if (!projectId) return;
+    setError("");
+    setRenderDone(false);
+    setRendering(true);
+    setProgress({ overall: 0, step: "", msg: "preparando render…" });
+    startSSE(projectId, "render");
+    try {
+      await api.render(projectId);
+    } catch (e: any) {
+      setError(String(e.message || e));
+      setRendering(false);
+    }
+  };
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      v.play();
+      setPlaying(true);
+    } else {
+      v.pause();
+      setPlaying(false);
+    }
+  };
+
+  const addCutHere = () => {
+    if (!timeline || !videoRef.current) return;
+    const t = videoRef.current.currentTime;
+    const end = Math.min(t + 2, timeline.video.duration);
+    const id = `c${Date.now().toString(36)}`;
+    commit({
+      ...timeline,
+      cuts: [...timeline.cuts, { id, start: t, end, reason: "corte manual" }].sort(
+        (a, b) => a.start - b.start
+      ),
+    });
+    setSelection({ kind: "cut", id });
+  };
+
+  const deleteSelection = () => {
+    if (!timeline || !selection) return;
+    if (selection.kind === "cut") {
+      commit({ ...timeline, cuts: timeline.cuts.filter((c) => c.id !== selection.id) });
+    } else if (selection.kind === "callout") {
+      commit({
+        ...timeline,
+        callouts: timeline.callouts.filter((c) => c.id !== selection.id),
+      });
+    }
+    setSelection(null);
+  };
+
+  const pickMusic = (item: LibraryItem) => {
+    if (!timeline) return;
+    commit({
+      ...timeline,
+      music: { path: item.path, label: item.label, volume: timeline.music.volume },
+    });
+    setSelection({ kind: "music" });
+  };
+
+  const pickSfx = (item: LibraryItem) => {
+    if (!timeline || !videoRef.current) return;
+    const t = videoRef.current.currentTime;
+    const id = `s${Date.now().toString(36)}`;
+    commit({
+      ...timeline,
+      sfx: [
+        ...timeline.sfx,
+        { id, kind: item.label, timestamp: t, path: item.path },
+      ].sort((a, b) => a.timestamp - b.timestamp),
+    });
+  };
+
+  const pickTransition = (t: string) => {
+    if (!timeline) return;
+    commit({ ...timeline, transition: { ...timeline.transition, type: t } });
+  };
+
+  if (screen === "home") {
+    return (
+      <div className="home">
+        <div className="home-card">
+          <h1>Auto Editor</h1>
+          <p className="subtitle">Edição viral com IA — cortes, legendas, call-outs e trilha</p>
+          <button className="primary big" onClick={() => setShowBrowser(true)}>
+            Escolher vídeo
+          </button>
+          <p className="hint">
+            O vídeo é analisado localmente: transcrição, cortes, legendas e
+            sugestões — tudo antes de você revisar na timeline.
+          </p>
+          {error && <p className="error">{error}</p>}
+        </div>
+        {showBrowser && (
+          <FileBrowser onPick={pickVideo} onClose={() => setShowBrowser(false)} />
+        )}
+      </div>
+    );
+  }
+
+  if (screen === "busy") {
+    return (
+      <div className="home">
+        <div className="home-card">
+          <div className="ai-badge">
+            <span className="dot" /> IA editando
+          </div>
+          <h2>{progress.step || "Analisando"}</h2>
+          <p className="hint">{progress.msg}</p>
+          <div className="progress">
+            <div
+              className="progress-fill"
+              style={{ width: `${Math.round(progress.overall * 100)}%` }}
+            />
+          </div>
+          <p className="pct">{Math.round(progress.overall * 100)}%</p>
+          {error && <p className="error">{error}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (!timeline) {
+    return (
+      <div className="home">
+        <div className="home-card">
+          <p>Carregando timeline…</p>
+          {error && <p className="error">{error}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="editor">
+      <header className="topbar">
+        <span className="logo">Auto Editor</span>
+        <button onClick={togglePlay} className="primary">
+          {playing ? "⏸ Pausar" : "▶ Play"}
+        </button>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={resultMode}
+            onChange={(e) => setResultMode(e.target.checked)}
+          />
+          Prévia do resultado
+        </label>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={muted}
+            onChange={(e) => setMuted(e.target.checked)}
+          />
+          Mudo
+        </label>
+        <button onClick={addCutHere}>+ Corte aqui</button>
+        {selection && <button className="danger" onClick={deleteSelection}>Excluir seleção</button>}
+        <div className="spacer" />
+        <label className="zoom">
+          Zoom
+          <input
+            type="range"
+            min={1}
+            max={20}
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+          />
+        </label>
+        <button className="accent" onClick={doRender} disabled={rendering}>
+          {rendering ? "Renderizando…" : "Renderizar"}
+        </button>
+      </header>
+
+      {rendering && (
+        <div className="render-bar">
+          <div className="ai-badge small">
+            <span className="dot" /> IA editando
+          </div>
+          <div className="progress inline">
+            <div
+              className="progress-fill"
+              style={{ width: `${Math.round(progress.overall * 100)}%` }}
+            />
+          </div>
+          <span className="hint">
+            {progress.step} — {Math.round(progress.overall * 100)}%
+          </span>
+        </div>
+      )}
+      {renderDone && (
+        <div className="render-bar ok">
+          Vídeo pronto!{" "}
+          <a href={`/api/projects/${projectId}/output`} download>
+            Baixar MP4
+          </a>
+        </div>
+      )}
+      {error && <div className="render-bar fail">{error}</div>}
+
+      <div className="main">
+        <LibraryPanel
+          library={library}
+          onPickMusic={pickMusic}
+          onPickSfx={pickSfx}
+          onPickTransition={pickTransition}
+          transitionType={timeline.transition.type}
+          transitionTypes={[]}
+        />
+        <div className="center">
+          <Player
+            videoUrl={`/api/projects/${projectId}/video`}
+            timeline={timeline}
+            resultMode={resultMode}
+            muted={muted}
+            videoRef={videoRef}
+          />
+        </div>
+        <PropertiesPanel
+          timeline={timeline}
+          selection={selection}
+          onChange={commit}
+          onDelete={deleteSelection}
+        />
+      </div>
+
+      <div className="timeline-area">
+        <TimelineView
+          timeline={timeline}
+          selection={selection}
+          onSelect={setSelection}
+          onCommit={commit}
+          videoRef={videoRef}
+          zoom={zoom}
+        />
+      </div>
+    </div>
+  );
+}

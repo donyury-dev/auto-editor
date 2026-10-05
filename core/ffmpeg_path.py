@@ -21,16 +21,23 @@ def _bundle_dir() -> Path:
 def _find_executable(name: str) -> Path | None:
     """Procura o binário em locais conhecidos do projeto ou no PATH."""
     bundle = _bundle_dir()
-    candidates = [
-        bundle / "bin" / "ffmpeg" / f"{name}.exe",
-        bundle / "bin" / "ffmpeg" / name,
-        bundle / f"{name}.exe",
-        bundle / name,
-        Path.cwd() / "bin" / "ffmpeg" / f"{name}.exe",
-        Path.cwd() / "bin" / "ffmpeg" / name,
-    ]
+    if sys.platform == "win32":
+        candidates = [
+            bundle / "bin" / "ffmpeg" / f"{name}.exe",
+            bundle / "bin" / "ffmpeg" / name,
+            bundle / f"{name}.exe",
+            bundle / name,
+            Path.cwd() / "bin" / "ffmpeg" / f"{name}.exe",
+            Path.cwd() / "bin" / "ffmpeg" / name,
+        ]
+    else:
+        candidates = [
+            bundle / "bin" / "ffmpeg" / name,
+            bundle / name,
+            Path.cwd() / "bin" / "ffmpeg" / name,
+        ]
     for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
+        if candidate.exists() and candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
     # Fallback para PATH do sistema
     found = shutil.which(name)
