@@ -85,6 +85,41 @@ input[type="range"] {
   margin: 18px 0;
 }
 
+/* dropzone de vídeo na tela inicial */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 22px 0 12px;
+  padding: 32px 24px;
+  border: 2px dashed #3d3d4a;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover,
+.dropzone.active {
+  border-color: var(--accent);
+  background: rgba(255, 82, 82, 0.06);
+}
+.dropzone-icon {
+  font-size: 26px;
+  margin-bottom: 4px;
+}
+.dropzone .hint {
+  font-size: 12px;
+}
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--dim);
+  text-decoration: underline;
+}
+button.ghost:hover {
+  color: #fff;
+}
+
 .ai-badge {
   display: inline-flex;
   align-items: center;

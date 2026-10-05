@@ -550,6 +550,26 @@ def output(project_id: str):
     )
 
 
+@app.post("/api/upload")
+async def upload_video(file: UploadFile) -> dict:
+    """Recebe um vídeo enviado pelo navegador (arrastar ou escolher arquivo)."""
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in VIDEO_EXTENSIONS:
+        raise HTTPException(400, "Formato não suportado. Use mp4, mov, mkv, webm, avi ou m4v.")
+    upload_dir = OUTPUT_DIR / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / f"{uuid.uuid4().hex[:12]}{suffix}"
+    size = 0
+    with dest.open("wb") as out:
+        while chunk := await file.read(4 * 1024 * 1024):
+            out.write(chunk)
+            size += len(chunk)
+    if size == 0:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, "Arquivo vazio.")
+    return {"path": str(dest), "name": file.filename, "size": size}
+
+
 @app.get("/api/files")
 def list_files(dir: str = "") -> dict:
     """Navegador de arquivos local (para escolher o vídeo na interface)."""

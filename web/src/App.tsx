@@ -21,6 +21,7 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [showBrowser, setShowBrowser] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [renderDone, setRenderDone] = useState(false);
   const [error, setError] = useState("");
@@ -79,8 +80,7 @@ export default function App() {
     );
   }, []);
 
-  const pickVideo = async (path: string) => {
-    setShowBrowser(false);
+  const startAnalysis = async (path: string) => {
     setError("");
     try {
       const p = await api.createProject(path);
@@ -93,6 +93,30 @@ export default function App() {
       setError(String(e.message || e));
       setScreen("home");
     }
+  };
+
+  const handleFile = async (file: File) => {
+    setError("");
+    setScreen("busy");
+    setProgress({ overall: 0, step: "Enviando vídeo", msg: file.name });
+    try {
+      const res = await api.uploadVideo(file, (pct) =>
+        setProgress({
+          overall: pct * 0.5,
+          step: "Enviando vídeo",
+          msg: `${file.name} — ${Math.round(pct * 100)}%`,
+        })
+      );
+      await startAnalysis(res.path);
+    } catch (e: any) {
+      setError(String(e.message || e));
+      setScreen("home");
+    }
+  };
+
+  const pickVideo = async (path: string) => {
+    setShowBrowser(false);
+    await startAnalysis(path);
   };
 
   const commit = async (next: Timeline) => {
@@ -183,12 +207,40 @@ export default function App() {
 
   if (screen === "home") {
     return (
-      <div className="home">
+      <div
+        className="home"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) handleFile(file);
+        }}
+      >
         <div className="home-card">
           <h1>Auto Editor</h1>
           <p className="subtitle">Edição viral com IA — cortes, legendas, call-outs e trilha</p>
-          <button className="primary big" onClick={() => setShowBrowser(true)}>
-            Escolher vídeo
+          <label className={`dropzone ${dragging ? "active" : ""}`}>
+            <input
+              type="file"
+              accept="video/*"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFile(file);
+                e.currentTarget.value = "";
+              }}
+            />
+            <span className="dropzone-icon">⬆</span>
+            <strong>Arraste um vídeo aqui</strong>
+            <span className="hint">ou clique para escolher do seu computador</span>
+          </label>
+          <button className="ghost" onClick={() => setShowBrowser(true)}>
+            Escolher por pastas (sem copiar o arquivo)
           </button>
           <p className="hint">
             O vídeo é analisado localmente: transcrição, cortes, legendas e

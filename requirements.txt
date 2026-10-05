@@ -13,3 +13,4 @@ pillow>=10.0.0
 fastapi>=0.115
 uvicorn>=0.30
 sse-starlette>=2.0
+python-multipart>=0.0.9

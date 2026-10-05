@@ -19,6 +19,30 @@ export const api = {
       body: JSON.stringify({ path }),
     }).then((r) => j<{ id: string; name: string }>(r)),
 
+  uploadVideo: (file: File, onProgress?: (pct: number) => void) =>
+    new Promise<{ path: string; name: string; size: number }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/upload");
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new Error("Resposta inválida do servidor"));
+          }
+        } else {
+          reject(new Error(xhr.responseText || "Falha no envio do vídeo"));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Falha no envio do vídeo"));
+      const form = new FormData();
+      form.append("file", file);
+      xhr.send(form);
+    }),
+
   analyze: (id: string) =>
     fetch(`/api/projects/${id}/analyze`, { method: "POST" }).then((r) =>
       j<{ ok: boolean }>(r)
