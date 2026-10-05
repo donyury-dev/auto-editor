@@ -106,6 +106,7 @@ class TimelineUpdate(BaseModel):
     transition: dict = {}
     captions: list[dict] = []
     callouts: list[dict] = []
+    keywords: list[dict] = []
     music: dict = {}
     sfx: list[dict] = []
     caption_style: str = ""
@@ -172,6 +173,15 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
         for i, m in enumerate(ctx.illustrations)
         if m.kind != "none"
     ]
+    keywords = [
+        {
+            "id": f"w{i + 1:04d}",
+            "start": round(k.start, 3),
+            "end": round(k.end, 3),
+            "text": k.word,
+        }
+        for i, k in enumerate(ctx.edit_plan.keywords)
+    ]
     info = None
     try:
         from core.video_processor import VideoProcessor
@@ -218,6 +228,7 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
         },
         "captions": captions,
         "callouts": callouts,
+        "keywords": keywords,
         "caption_style": settings.caption_style,
         "caption_scale": float(getattr(settings, "caption_scale", 1.0)),
         "music": {
@@ -305,6 +316,20 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         )
         for o in tl.get("callouts", [])
         if float(o.get("end", 0)) > float(o.get("start", 0))
+    ]
+
+    # palavras-chave editadas pelo usuário (texto/timing)
+    from core.edit_plan import KeywordPop
+
+    ctx.edit_plan.keywords = [
+        KeywordPop(
+            start=float(k["start"]),
+            end=float(k["end"]),
+            word=str(k.get("text", "")).strip(),
+        )
+        for k in tl.get("keywords", [])
+        if float(k.get("end", 0)) > float(k.get("start", 0))
+        and str(k.get("text", "")).strip()
     ]
 
     # legendas editadas pelo usuário → reconstrói a transcrição usada no render
@@ -534,6 +559,7 @@ def put_timeline(project_id: str, update: TimelineUpdate) -> dict:
         tl["transition"] = update.transition
     tl["captions"] = update.captions
     tl["callouts"] = update.callouts
+    tl["keywords"] = update.keywords
     if update.music:
         tl["music"] = update.music
     tl["sfx"] = update.sfx

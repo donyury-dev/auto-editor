@@ -188,6 +188,21 @@ export default function App() {
     setSelection({ kind: "callout", id });
   };
 
+  const addKeywordHere = () => {
+    if (!timeline || !videoRef.current) return;
+    const t = videoRef.current.currentTime;
+    const end = Math.min(t + 1.5, timeline.video.duration);
+    const id = `w${Date.now().toString(36)}`;
+    commit({
+      ...timeline,
+      keywords: [
+        ...timeline.keywords,
+        { id, start: t, end, text: "PALAVRA" },
+      ],
+    });
+    setSelection({ kind: "keyword", id });
+  };
+
   const deleteSelection = () => {
     if (!timeline || !selection) return;
     if (selection.kind === "cut") {
@@ -196,6 +211,11 @@ export default function App() {
       commit({
         ...timeline,
         callouts: timeline.callouts.filter((c) => c.id !== selection.id),
+      });
+    } else if (selection.kind === "keyword") {
+      commit({
+        ...timeline,
+        keywords: timeline.keywords.filter((k) => k.id !== selection.id),
       });
     } else if (selection.kind === "zoom") {
       commit({
@@ -397,6 +417,7 @@ export default function App() {
             </label>
             <button onClick={addCutHere}>+ Corte aqui</button>
             <button onClick={addCalloutHere}>+ Call-out aqui</button>
+            <button onClick={addKeywordHere}>+ Palavra-chave aqui</button>
             {selection && (
               <button className="danger" onClick={deleteSelection}>
                 Excluir seleção

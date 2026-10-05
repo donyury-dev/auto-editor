@@ -111,6 +111,31 @@ export default function Properties({
     );
   }
 
+  if (selection.kind === "keyword") {
+    const kw = timeline.keywords.find((k) => k.id === selection.id);
+    if (!kw) return null;
+    return (
+      <aside className="properties">
+        <h3>Palavra-chave</h3>
+        <p className="hint">
+          Pop gigante estilo anúncio: estoura na tela com profundidade 3D.
+        </p>
+        <input
+          value={kw.text}
+          maxLength={24}
+          onChange={(e) =>
+            onChange(patchKeyword(timeline, kw.id, e.target.value))
+          }
+        />
+        <Num label="Início (s)" value={kw.start} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchKeywordTime(timeline, kw.id, { start: v }))} />
+        <Num label="Fim (s)" value={kw.end} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchKeywordTime(timeline, kw.id, { end: v }))} />
+        <button className="danger" onClick={onDelete}>Remover palavra-chave</button>
+      </aside>
+    );
+  }
+
   if (selection.kind === "zoom") {
     const z = timeline.zooms.find((x) => x.id === selection.id);
     if (!z) return null;
@@ -511,6 +536,22 @@ function patchCalloutTime(t: Timeline, id: string, patch: { start?: number; end?
     callouts: t.callouts
       .map((c) => (c.id === id ? { ...c, ...patch } : c))
       .filter((c) => c.end > c.start),
+  };
+}
+
+function patchKeyword(t: Timeline, id: string, text: string): Timeline {
+  return {
+    ...t,
+    keywords: t.keywords.map((k) => (k.id === id ? { ...k, text } : k)),
+  };
+}
+
+function patchKeywordTime(t: Timeline, id: string, patch: { start?: number; end?: number }): Timeline {
+  return {
+    ...t,
+    keywords: t.keywords
+      .map((k) => (k.id === id ? { ...k, ...patch } : k))
+      .filter((k) => k.end > k.start),
   };
 }
 

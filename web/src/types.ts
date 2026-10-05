@@ -34,6 +34,13 @@ export interface CalloutBlock {
   text: string;
 }
 
+export interface KeywordBlock {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
 export interface SfxBlock {
   id: string;
   kind: string;
@@ -53,6 +60,7 @@ export interface Timeline {
   transition: { type: string; duration: number };
   captions: CaptionChunk[];
   callouts: CalloutBlock[];
+  keywords: KeywordBlock[];
   music: { path: string | null; label: string; volume: number };
   sfx: SfxBlock[];
   captionStyle?: string;
@@ -86,6 +94,7 @@ export type Selection =
   | { kind: "cut"; id: string }
   | { kind: "caption"; id: string }
   | { kind: "callout"; id: string }
+  | { kind: "keyword"; id: string }
   | { kind: "zoom"; id: string }
   | { kind: "sfx"; id: string }
   | { kind: "music" }

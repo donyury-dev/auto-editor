@@ -23,6 +23,7 @@ export default function Player({
   const captionRef = useRef<HTMLDivElement>(null);
   const calloutRef = useRef<HTMLDivElement>(null);
   const fxRef = useRef<HTMLDivElement>(null);
+  const keywordRef = useRef<HTMLDivElement>(null);
   const lastFxRef = useRef("");
 
   const preset =
@@ -144,6 +145,26 @@ export default function Player({
         call.style.display = "none";
       }
     }
+    // palavra-chave em pop gigante (estilo anúncio)
+    const kwEl = keywordRef.current;
+    if (kwEl) {
+      const kw = timeline.keywords.find(
+        (k) => t >= k.start - 0.02 && t <= k.end && k.text.trim()
+      );
+      if (kw) {
+        const elapsed = t - kw.start;
+        // pop 3D: estoura com overshoot e segue crescendo até o fim
+        let scale = 1;
+        if (elapsed < 0.2) scale = 0.22 + (elapsed / 0.2) * 0.94;
+        else if (elapsed < 0.34) scale = 1.16 - ((elapsed - 0.2) / 0.14) * 0.16;
+        else scale = 1.0 + Math.min(0.14, (elapsed - 0.34) * 0.1);
+        const fadeOut = Math.max(0, Math.min(1, (kw.end - t) / 0.22));
+        kwEl.innerHTML = `<span style="display:inline-block;transform:scale(${scale.toFixed(3)});opacity:${fadeOut.toFixed(3)}">${escapeHtml(kw.text.toUpperCase())}</span>`;
+        kwEl.style.display = "block";
+      } else {
+        kwEl.style.display = "none";
+      }
+    }
   }
 
   return (
@@ -157,6 +178,7 @@ export default function Player({
       />
       <div className="overlays" ref={overlayRef}>
         <div className="fx-overlay" ref={fxRef} />
+        <div className="keyword-overlay" ref={keywordRef}></div>
         <div className="callout-overlay" ref={calloutRef}></div>
         <div
           className="caption-overlay"

@@ -62,11 +62,36 @@ class ZoomEffect:
 
 
 @dataclass
+class KeywordPop:
+    """Palavra-chave destacada em pop gigante (estilo anúncio)."""
+
+    start: float
+    end: float
+    word: str = ""
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+    def to_dict(self) -> dict:
+        return {"start": self.start, "end": self.end, "word": self.word}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "KeywordPop":
+        return cls(
+            start=float(data["start"]),
+            end=float(data["end"]),
+            word=str(data.get("word", "")),
+        )
+
+
+@dataclass
 class EditPlan:
     """Plano completo de edição sugerido (sujeito a revisão do usuário)."""
 
     cuts: list[Cut] = field(default_factory=list)
     zooms: list[ZoomEffect] = field(default_factory=list)
+    keywords: list[KeywordPop] = field(default_factory=list)
     transition_type: str = "fade"  # aplicado nos pontos de corte
     transition_duration: float = 0.3
     source: str = "heurística local"  # quem gerou o plano
@@ -97,6 +122,7 @@ class EditPlan:
                 }
                 for z in self.zooms
             ],
+            "keywords": [k.to_dict() for k in self.keywords],
             "transition_type": self.transition_type,
             "transition_duration": self.transition_duration,
             "source": self.source,
@@ -126,6 +152,10 @@ class EditPlan:
                     reason=str(z.get("reason", "")),
                 )
                 for z in data.get("zooms", [])
+            ],
+            keywords=[
+                KeywordPop.from_dict(k)
+                for k in data.get("keywords", [])
             ],
             transition_type=str(data.get("transition_type", "fade")),
             transition_duration=float(data.get("transition_duration", 0.3)),

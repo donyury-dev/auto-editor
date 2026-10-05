@@ -12,7 +12,7 @@ interface TimelineProps {
 
 type DragState =
   | {
-      kind: "cut" | "callout" | "zoom" | "sfx";
+      kind: "cut" | "callout" | "keyword" | "zoom" | "sfx";
       id: string;
       edge: "left" | "right" | "move";
       startX: number;
@@ -84,7 +84,7 @@ export default function Timeline({
 
   const startDrag = (
     e: React.PointerEvent,
-    kind: "cut" | "callout" | "zoom" | "sfx",
+    kind: "cut" | "callout" | "keyword" | "zoom" | "sfx",
     id: string,
     edge: "left" | "right" | "move"
   ) => {
@@ -95,9 +95,11 @@ export default function Timeline({
         ? timeline.cuts.find((c) => c.id === id)
         : kind === "callout"
           ? timeline.callouts.find((c) => c.id === id)
-          : kind === "zoom"
-            ? timeline.zooms.find((z) => z.id === id)
-            : timeline.sfx.find((s) => s.id === id);
+          : kind === "keyword"
+            ? timeline.keywords.find((k) => k.id === id)
+            : kind === "zoom"
+              ? timeline.zooms.find((z) => z.id === id)
+              : timeline.sfx.find((s) => s.id === id);
     if (!block) return;
     const orig = {
       start: "timestamp" in block ? block.timestamp : block.start,
@@ -158,6 +160,10 @@ export default function Timeline({
       } else if (d.kind === "callout") {
         next.callouts = next.callouts.map((c) =>
           c.id === cur.id ? { ...c, start: round(cur.start), end: round(cur.end) } : c
+        );
+      } else if (d.kind === "keyword") {
+        next.keywords = next.keywords.map((k) =>
+          k.id === cur.id ? { ...k, start: round(cur.start), end: round(cur.end) } : k
         );
       } else if (d.kind === "zoom") {
         next.zooms = next.zooms.map((z) =>
@@ -291,6 +297,44 @@ export default function Timeline({
                 title={o.text}
                 onPointerDown={(e) => startDrag(e, "callout", o.id, "move")}
               />
+            );
+          })}
+        </div>
+
+        <div
+          className="track keyword-track"
+          style={{ height: 30 }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).dataset.block) return;
+            seekFromEvent(e);
+          }}
+        >
+          {timeline.keywords.map((k) => {
+            const d = dragBlock(k.id);
+            const start = d ? d.start : k.start;
+            const end = d ? d.end : k.end;
+            return (
+              <div
+                key={k.id}
+                data-block="1"
+                className={`mini-block keyword ${isSelected("keyword", k.id) ? "selected" : ""}`}
+                style={{
+                  left: start * pxPerSec,
+                  width: Math.max(8, (end - start) * pxPerSec),
+                }}
+                title={`Palavra-chave: ${k.text}`}
+                onPointerDown={(e) => startDrag(e, "keyword", k.id, "move")}
+              >
+                <span className="mini-label">{k.text}</span>
+                <div
+                  className="handle left"
+                  onPointerDown={(e) => startDrag(e, "keyword", k.id, "left")}
+                />
+                <div
+                  className="handle right"
+                  onPointerDown={(e) => startDrag(e, "keyword", k.id, "right")}
+                />
+              </div>
             );
           })}
         </div>

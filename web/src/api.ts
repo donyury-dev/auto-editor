@@ -68,6 +68,7 @@ export const api = {
         transition: timeline.transition,
         captions: timeline.captions,
         callouts: timeline.callouts,
+        keywords: timeline.keywords,
         music: timeline.music,
         sfx: timeline.sfx,
         caption_style: timeline.captionStyle || "",

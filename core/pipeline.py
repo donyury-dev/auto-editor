@@ -26,6 +26,7 @@ from core.audio_plan import (
 from core.caption_styles import get_caption_style
 from core.edit_plan import (
     EditPlan,
+    KeywordPop,
     snap_cuts_to_word_gaps,
     validate_plan,
 )
@@ -223,6 +224,13 @@ class BuildEditPlanStep(PipelineStep):
                     c.transition_duration = 0.3
                     n += 1
         plan = validate_plan(plan)
+        # palavras-chave em pop (estilo anúncio) — só na primeira análise
+        if not plan.keywords:
+            from core.keyword_engine import pick_keywords
+
+            plan.keywords = pick_keywords(
+                ctx.transcript.words, duration=duration
+            )
 
         ctx.edit_plan = plan
         plan.save(ctx.work_dir / "edit_plan.json")
@@ -407,14 +415,32 @@ class ApplyIllustrationsStep(PipelineStep):
             m for m in ctx.illustrations
             if m.kind == "callout"
         ]
-        if not approved_images and not approved_callouts:
-            progress(1.0, "nenhuma ilustração aprovada")
-            return
-
         plan = ctx.edit_plan
         source = ctx.edited_path or ctx.input_path
         processor = VideoProcessor()
         info = processor.probe(source)
+
+        # palavras-chave (independente das ilustrações), remapeadas
+        keywords: list[KeywordPop] = []
+        for k in (plan.keywords if plan is not None else []):
+            if not k.word.strip():
+                continue
+            if plan is not None and plan.cuts:
+                if any(
+                    c.start <= k.start and k.end <= c.end for c in plan.cuts
+                ):
+                    continue  # momento removido pelo corte
+                start = plan.remap_time(k.start)
+                end = plan.remap_time(k.end)
+            else:
+                start, end = k.start, k.end
+            if end - start < 0.3:
+                continue
+            keywords.append(KeywordPop(start=start, end=end, word=k.word))
+
+        if not approved_images and not approved_callouts and not keywords:
+            progress(1.0, "nenhum destaque aprovado")
+            return
 
         remapped: list[IllustrationMoment] = []
         for m in [*approved_images, *approved_callouts]:
@@ -442,8 +468,8 @@ class ApplyIllustrationsStep(PipelineStep):
                 )
             )
 
-        if not remapped:
-            progress(1.0, "ilustrações fora da linha do tempo; nada a aplicar")
+        if not remapped and not keywords:
+            progress(1.0, "destaques fora da linha do tempo; nada a aplicar")
             return
 
         current_source = source
@@ -473,6 +499,26 @@ class ApplyIllustrationsStep(PipelineStep):
             processor.apply_callouts(
                 current_source,
                 callout_ass,
+                info,
+                ctx.settings.output_format,
+                out,
+                progress=progress,
+            )
+            current_source = out
+
+        keywords = [k for k in ctx.edit_plan.keywords if k.word.strip()]
+        if keywords:
+            out = ctx.work_dir / "keywords.mp4"
+            kw_ass = ctx.work_dir / "keywords.ass"
+            kw_w, kw_h = resolve_target_resolution(
+                ctx.settings.output_format, info
+            )
+            from core.keyword_engine import write_keywords_ass
+
+            write_keywords_ass(keywords, kw_ass, kw_w, kw_h)
+            processor.apply_callouts(
+                current_source,
+                kw_ass,
                 info,
                 ctx.settings.output_format,
                 out,

@@ -460,6 +460,27 @@ button.ghost:hover {
   to { transform: translateY(-101%); }
 }
 
+.keyword-overlay {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  top: 32%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  z-index: 7;
+  font-family: "Anton", sans-serif;
+  font-size: 17cqh;
+  letter-spacing: 0.02em;
+  color: #ff6b2b;
+  -webkit-text-stroke: 0.9cqh #ffffff;
+  paint-order: stroke fill;
+  filter: drop-shadow(0 0.8cqh 1.4cqh rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .caption-overlay {
   position: absolute;
   left: 8%;
@@ -540,14 +561,14 @@ button.ghost:hover {
 
 /* ---- timeline ---- */
 .timeline-area {
-  height: 235px;
+  height: 265px;
   background: var(--panel);
   border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
 @media (max-height: 860px) {
   .timeline-area {
-    height: 185px;
+    height: 215px;
   }
 }
 .timeline {
@@ -663,6 +684,13 @@ button.ghost:hover {
 .mini-block.music {
   background: #35d07f33;
   border: 1px solid #35d07f;
+}
+.mini-block.keyword {
+  background: #ff6b2b33;
+  border: 1px solid #ff6b2b;
+}
+.mini-block.keyword .mini-label {
+  color: #ffb08a;
 }
 .mini-block.music.empty {
   background: transparent;
