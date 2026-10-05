@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CaptionStylePreset, Timeline } from "../types";
+import type { CaptionStylePreset, CutBlock, Timeline } from "../types";
 
 interface PlayerProps {
   videoUrl: string;
@@ -22,6 +22,8 @@ export default function Player({
   const overlayRef = useRef<HTMLDivElement>(null);
   const captionRef = useRef<HTMLDivElement>(null);
   const calloutRef = useRef<HTMLDivElement>(null);
+  const fxRef = useRef<HTMLDivElement>(null);
+  const lastFxRef = useRef("");
 
   const preset =
     captionStyles.find((s) => s.id === (timeline.captionStyle || "")) ||
@@ -54,14 +56,25 @@ export default function Player({
             (c) => t >= c.start - 0.02 && t < c.end
           );
           if (cut) {
-            if (cut.end >= video.duration - 0.05) {
-              video.pause();
-              video.currentTime = video.duration - 0.05;
-            } else {
-              video.currentTime = cut.end + 0.01;
+            if (lastFxRef.current !== cut.id) {
+              lastFxRef.current = cut.id;
+              if (cut.end >= video.duration - 0.05) {
+                video.pause();
+                video.currentTime = video.duration - 0.05;
+              } else {
+                triggerFx(cut);
+                video.currentTime = cut.end + 0.01;
+              }
             }
+          } else {
+            lastFxRef.current = "";
           }
         }
+        // zoom simulado: CSS scale durante o bloco de zoom
+        const zoom = timeline.zooms.find((z) => t >= z.start && t < z.end);
+        video.style.transform = zoom
+          ? `scale(${(1 + zoom.intensity).toFixed(3)})`
+          : "scale(1)";
         renderOverlays(t);
       }
       raf = requestAnimationFrame(tick);
@@ -72,6 +85,26 @@ export default function Player({
   }, [timeline, resultMode]);
 
   const isVertical = timeline.video.height >= timeline.video.width;
+
+  function triggerFx(cut: CutBlock) {
+    const fx = fxRef.current;
+    if (!fx) return;
+    const type = cut.transition?.type || timeline.transition.type || "";
+    const dur =
+      cut.transition?.duration || timeline.transition.duration || 0.25;
+    if (!type || type === "corte") return;
+    const anim =
+      type === "circleopen"
+        ? "fxCircle"
+        : type === "slideleft"
+          ? "fxSlideLeft"
+          : type === "slideup"
+            ? "fxSlideUp"
+            : "fxFade";
+    fx.style.animation = "none";
+    void fx.offsetWidth; // força restart da animação
+    fx.style.animation = `${anim} ${dur}s ease-out forwards`;
+  }
 
   function renderOverlays(t: number) {
     // legenda
@@ -123,6 +156,7 @@ export default function Player({
         playsInline
       />
       <div className="overlays" ref={overlayRef}>
+        <div className="fx-overlay" ref={fxRef} />
         <div className="callout-overlay" ref={calloutRef}></div>
         <div
           className="caption-overlay"

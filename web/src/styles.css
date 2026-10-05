@@ -388,6 +388,8 @@ button.ghost:hover {
   justify-content: center;
   background: #0a0a0d;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 .controls {
   display: flex;
@@ -412,12 +414,18 @@ button.ghost:hover {
   position: relative;
   max-width: 100%;
   max-height: 100%;
+  flex-shrink: 1;
+  min-height: 0;
 }
 .player video {
   max-width: 100%;
-  max-height: calc(100vh - 300px);
+  max-height: calc(100vh - 420px);
+  min-height: 0;
   border-radius: 10px;
   background: black;
+  transition: transform 0.35s ease;
+  transform-origin: 50% 42%;
+  will-change: transform;
 }
 .overlays {
   position: absolute;
@@ -427,6 +435,31 @@ button.ghost:hover {
   overflow: hidden;
   container-type: size;
 }
+.fx-overlay {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+@keyframes fxFade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes fxCircle {
+  from { clip-path: circle(141% at 50% 50%); opacity: 1; }
+  to { clip-path: circle(0% at 50% 50%); opacity: 1; }
+}
+@keyframes fxSlideLeft {
+  from { transform: translateX(0); }
+  to { transform: translateX(-101%); }
+}
+@keyframes fxSlideUp {
+  from { transform: translateY(0); }
+  to { transform: translateY(-101%); }
+}
+
 .caption-overlay {
   position: absolute;
   left: 8%;
@@ -510,6 +543,12 @@ button.ghost:hover {
   height: 235px;
   background: var(--panel);
   border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+@media (max-height: 860px) {
+  .timeline-area {
+    height: 185px;
+  }
 }
 .timeline {
   height: 100%;

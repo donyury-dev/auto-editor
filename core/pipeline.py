@@ -213,6 +213,15 @@ class BuildEditPlanStep(PipelineStep):
             from core.scene_detect import align_cuts_to_scenes
 
             plan.cuts = align_cuts_to_scenes(plan.cuts, ctx.scene_times)
+            # estilo anúncio: cortes em mudança de cena ganham transições
+            # variadas (não fica tudo fade igual)
+            cycle = ["dissolve", "slideleft", "circleopen"]
+            n = 0
+            for c in plan.cuts:
+                if "mudança de cenário" in (c.reason or "") and not c.transition_type:
+                    c.transition_type = cycle[n % len(cycle)]
+                    c.transition_duration = 0.3
+                    n += 1
         plan = validate_plan(plan)
 
         ctx.edit_plan = plan
