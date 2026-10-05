@@ -520,11 +520,33 @@ class VideoProcessor:
     def _join_segments(
         self, seg_paths: list[Path], plan: EditPlan, out_path: Path
     ) -> None:
-        """Une os segmentos com transições (xfade) ou concat simples."""
+        """Une os segmentos com transições (xfade) ou concat simples.
+
+        Cada junção usa a transição do corte que a gerou quando o corte
+        define um override (`Cut.transition_type`); cortes sem override
+        usam a transição global do plano.
+        """
         durations = [self.probe(p).duration for p in seg_paths]
         has_audio = self.probe(seg_paths[0]).has_audio
-        td = min(plan.transition_duration, max(0.1, min(durations) * 0.4))
         n = len(seg_paths)
+
+        # transição efetiva por junção (junção i fica entre seg i-1 e i)
+        join_types: list[str] = []
+        join_durs: list[float] = []
+        for i in range(n - 1):
+            cut = plan.cuts[i] if i < len(plan.cuts) else None
+            ttype = (
+                cut.transition_type
+                if cut is not None and cut.transition_type
+                else plan.transition_type
+            )
+            tdur = (
+                cut.transition_duration
+                if cut is not None and cut.transition_duration
+                else plan.transition_duration
+            )
+            join_types.append(ttype)
+            join_durs.append(min(1.0, max(0.1, tdur)))
 
         inputs: list[str] = []
         for p in seg_paths:
@@ -532,8 +554,9 @@ class VideoProcessor:
 
         cmd = [get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", *inputs]
 
-        if plan.transition_type == "corte":
-            # corte seco: concat simples (esta build exige vídeo/áudio alternados)
+        if all(t == "corte" for t in join_types):
+            # corte seco em todas as junções: concat simples
+            # (esta build exige vídeo/áudio alternados)
             if has_audio:
                 streams = ""
                 for i in range(n):
@@ -544,61 +567,37 @@ class VideoProcessor:
                 vstreams = "".join(f"[{i}:v:0]" for i in range(n))
                 fc = f"{vstreams}concat=n={n}:v=1[v]"
                 maps = ["-map", "[v]"]
-        elif plan.transition_type == "fade":
-            # fade real entre segmentos usando fade filter (não xfade)
+        else:
+            # cadeia de xfade (vídeo) + acrossfade (áudio), com a transição
+            # de cada junção vinda do corte correspondente. Junções do tipo
+            # "corte" usam um fade de 0.1s (lê-se como corte seco dentro
+            # da cadeia de xfade).
             parts: list[str] = []
             for i in range(n):
-                fade_filters = [f"[{i}:v]format=pix_fmts=yuv420p[v{i}]"]
-                # Nada mais: cada segmento é preparado individualmente
-                parts.append(fade_filters[0])
-            # Cadeia de crossfade via fade-in/fade-out sobrepostos
-            # Implementação simplificada: usamos xfade com transition=fade
-            # pois no xfade do ffmpeg "fade" é o efeito de fade limpo.
+                parts.append(f"[{i}:v]format=pix_fmts=yuv420p[v{i}]")
             prev_v = "[v0]"
             acc = durations[0]
             for i in range(1, n):
                 out_v = f"[xv{i}]" if i < n - 1 else "[v]"
-                offset = max(0.0, acc - td)
+                d = join_durs[i - 1]
+                ttype = join_types[i - 1]
+                if ttype == "corte":
+                    ttype = "fade"
+                    d = 0.1
+                offset = max(0.0, acc - d)
                 parts.append(
-                    f"{prev_v}[{i}:v]xfade=transition=fade"
-                    f":duration={td:.3f}:offset={offset:.3f}{out_v}"
+                    f"{prev_v}[v{i}]xfade=transition="
+                    f"{ttype}"
+                    f":duration={d:.3f}:offset={offset:.3f}{out_v}"
                 )
                 prev_v = out_v
-                acc = acc + durations[i] - td
+                acc = acc + durations[i] - d
             if has_audio:
                 prev_a = "[0:a]"
                 for i in range(1, n):
                     out_a = f"[xa{i}]" if i < n - 1 else "[a]"
-                    parts.append(
-                        f"{prev_a}[{i}:a]acrossfade=d={td:.3f}{out_a}"
-                    )
-                    prev_a = out_a
-                maps = ["-map", "[v]", "-map", "[a]"]
-            else:
-                maps = ["-map", "[v]"]
-            fc = ";".join(parts)
-        else:
-            # cadeia de xfade (vídeo) + acrossfade (áudio) — transições animadas
-            parts = []
-            prev_v = "[0:v]"
-            acc = durations[0]
-            for i in range(1, n):
-                out_v = f"[xv{i}]" if i < n - 1 else "[v]"
-                offset = max(0.0, acc - td)
-                parts.append(
-                    f"{prev_v}[{i}:v]xfade=transition="
-                    f"{plan.transition_type}"
-                    f":duration={td:.3f}:offset={offset:.3f}{out_v}"
-                )
-                prev_v = out_v
-                acc = acc + durations[i] - td
-            if has_audio:
-                prev_a = "[0:a]"
-                for i in range(1, n):
-                    out_a = f"[xa{i}]" if i < n - 1 else "[a]"
-                    parts.append(
-                        f"{prev_a}[{i}:a]acrossfade=d={td:.3f}{out_a}"
-                    )
+                    d = 0.1 if join_types[i - 1] == "corte" else join_durs[i - 1]
+                    parts.append(f"{prev_a}[{i}:a]acrossfade=d={d:.3f}{out_a}")
                     prev_a = out_a
                 maps = ["-map", "[v]", "-map", "[a]"]
             else:

@@ -53,6 +53,11 @@ export default function Properties({
         <Num label="Fim (s)" value={cut.end} min={0} max={timeline.video.duration}
           onChange={(v) => onChange(patchCut(timeline, cut.id, { end: v }))} />
         {cut.reason && <p className="hint">Motivo: {cut.reason}</p>}
+        <CutTransitionPicker
+          timeline={timeline}
+          cutId={cut.id}
+          onChange={onChange}
+        />
         <button className="danger" onClick={onDelete}>Remover corte</button>
       </aside>
     );
@@ -362,6 +367,83 @@ function TransicaoPicker({ timeline, onChange }: { timeline: Timeline; onChange:
           }
         />
       </label>
+    </>
+  );
+}
+
+function CutTransitionPicker({
+  timeline,
+  cutId,
+  onChange,
+}: {
+  timeline: Timeline;
+  cutId: string;
+  onChange: (t: Timeline) => void;
+}) {
+  const [types, setTypes] = useState<string[]>([
+    "corte",
+    "fade",
+    "slideleft",
+    "slideup",
+    "circleopen",
+    "dissolve",
+  ]);
+  useEffect(() => {
+    fetch("/api/transitions")
+      .then((r) => r.json())
+      .then((d) => setTypes(d.types))
+      .catch(() => {});
+  }, []);
+  const cut = timeline.cuts.find((c) => c.id === cutId);
+  if (!cut) return null;
+  const override = cut.transition || null;
+  const setOverride = (
+    next: { type: string; duration: number } | null
+  ) => {
+    onChange({
+      ...timeline,
+      cuts: timeline.cuts.map((c) =>
+        c.id === cutId ? { ...c, transition: next } : c
+      ),
+    });
+  };
+  return (
+    <>
+      <h3>Transição deste corte</h3>
+      <select
+        value={override?.type || ""}
+        onChange={(e) => {
+          const t = e.target.value;
+          setOverride(
+            t
+              ? { type: t, duration: override?.duration || timeline.transition.duration }
+              : null
+          );
+        }}
+      >
+        <option value="">Padrão do projeto ({timeline.transition.type})</option>
+        {types.map((t) => (
+          <option key={t} value={t}>{t}</option>
+        ))}
+      </select>
+      {override && (
+        <label>
+          Duração: {override.duration.toFixed(2)}s
+          <input
+            type="range"
+            min={10}
+            max={80}
+            value={Math.round(override.duration * 100)}
+            onChange={(e) =>
+              setOverride({
+                ...override,
+                duration: Number(e.target.value) / 100,
+              })
+            }
+          />
+        </label>
+      )}
+      <p className="hint">Vale só para a junção logo após este corte.</p>
     </>
   );
 }

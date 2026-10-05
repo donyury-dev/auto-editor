@@ -17,6 +17,7 @@ export interface CutBlock {
   start: number;
   end: number;
   reason?: string;
+  transition?: { type: string; duration: number } | null;
 }
 
 export interface ZoomBlock {

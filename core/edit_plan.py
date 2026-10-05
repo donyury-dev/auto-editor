@@ -33,11 +33,18 @@ MAX_PLAN_ITEMS = 60  # teto de segurança para saídas de LLM
 
 @dataclass
 class Cut:
-    """Intervalo a REMOVER do vídeo (linha do tempo original)."""
+    """Intervalo a REMOVER do vídeo (linha do tempo original).
+
+    `transition_type`/`transition_duration` vazios/zero = usa o padrão do
+    plano (transição global). Valores preenchidos sobrescrevem a junção
+    imediatamente APÓS este corte.
+    """
 
     start: float
     end: float
     reason: str = ""
+    transition_type: str = ""  # "" = padrão do plano
+    transition_duration: float = 0.0  # 0 = padrão do plano
 
 
 @dataclass
@@ -72,7 +79,13 @@ class EditPlan:
     def to_dict(self) -> dict:
         return {
             "cuts": [
-                {"start": c.start, "end": c.end, "reason": c.reason}
+                {
+                    "start": c.start,
+                    "end": c.end,
+                    "reason": c.reason,
+                    "transition_type": c.transition_type,
+                    "transition_duration": c.transition_duration,
+                }
                 for c in self.cuts
             ],
             "zooms": [
@@ -98,6 +111,10 @@ class EditPlan:
                     start=float(c["start"]),
                     end=float(c["end"]),
                     reason=str(c.get("reason", "")),
+                    transition_type=str(c.get("transition_type", "") or ""),
+                    transition_duration=float(
+                        c.get("transition_duration", 0) or 0
+                    ),
                 )
                 for c in data.get("cuts", [])
             ],
@@ -228,6 +245,16 @@ def validate_plan(plan: EditPlan) -> EditPlan:
         c.end = min(duration, c.end)
         if c.end - c.start < MIN_CUT_S:
             continue
+        # transição por corte: só tipos conhecidos
+        if c.transition_type and c.transition_type not in TRANSITION_TYPES:
+            c.transition_type = ""
+            c.transition_duration = 0.0
+        if c.transition_type:
+            c.transition_duration = min(
+                1.0, max(0.1, c.transition_duration or plan.transition_duration)
+            )
+        else:
+            c.transition_duration = 0.0
         if valid and c.start < valid[-1].end:  # sobreposto: mescla
             valid[-1].end = max(valid[-1].end, c.end)
             valid[-1].reason = valid[-1].reason or c.reason
@@ -285,5 +312,13 @@ def snap_cuts_to_word_gaps(
                 end = ws
                 break
         if end - start >= MIN_CUT_S:
-            snapped.append(Cut(start=start, end=end, reason=c.reason))
+            snapped.append(
+                Cut(
+                    start=start,
+                    end=end,
+                    reason=c.reason,
+                    transition_type=c.transition_type,
+                    transition_duration=c.transition_duration,
+                )
+            )
     return snapped

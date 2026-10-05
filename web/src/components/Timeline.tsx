@@ -229,7 +229,9 @@ export default function Timeline({
                   className="handle left"
                   onPointerDown={(e) => startDrag(e, "cut", c.id, "left")}
                 />
-                <span className="cut-label">corte</span>
+                <span className="cut-label">
+                  corte{c.transition ? ` · ${c.transition.type}` : ""}
+                </span>
                 <div
                   className="handle right"
                   onPointerDown={(e) => startDrag(e, "cut", c.id, "right")}

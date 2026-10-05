@@ -192,6 +192,14 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
                 "start": round(c.start, 3),
                 "end": round(c.end, 3),
                 "reason": c.reason,
+                "transition": (
+                    {
+                        "type": c.transition_type,
+                        "duration": round(c.transition_duration, 3),
+                    }
+                    if c.transition_type
+                    else None
+                ),
             }
             for i, c in enumerate(ctx.edit_plan.cuts)
         ],
@@ -258,6 +266,12 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
                 start=float(c["start"]),
                 end=float(c["end"]),
                 reason=str(c.get("reason", "")),
+                transition_type=str(
+                    (c.get("transition") or {}).get("type", "") or ""
+                ),
+                transition_duration=float(
+                    (c.get("transition") or {}).get("duration", 0) or 0
+                ),
             )
             for c in tl.get("cuts", [])
         ],

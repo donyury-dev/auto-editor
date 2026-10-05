@@ -75,6 +75,9 @@ class PipelineContext:
     # Fase 7: sugestões do pack externo (pós-revisão) e LUT aprovado
     pack_suggestions: list[PackSuggestion] = field(default_factory=list)
     lut_path: Optional[Path] = None
+    # Edição estilo anúncio: instantes de mudança de cena (vazio se a
+    # detecção falhar — nunca bloqueia a análise)
+    scene_times: list[float] = field(default_factory=list)
 
 
 class PipelineStep(ABC):
@@ -136,6 +139,27 @@ class BuildSubtitlesStep(PipelineStep):
         progress(1.0, "legendas geradas")
 
 
+class SceneDetectStep(PipelineStep):
+    """Detecta mudanças de cena para alinhar cortes ao ritmo visual."""
+
+    name = "Cenas"
+    weight = 0.05
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        from core.scene_detect import detect_scene_changes
+
+        progress(0.3, "procurando mudanças de cenário…")
+        try:
+            ctx.scene_times = detect_scene_changes(ctx.input_path)
+        except Exception as exc:  # pragma: no cover - defesa
+            logger.warning("Detecção de cena falhou: %s", exc)
+            ctx.scene_times = []
+        progress(
+            1.0,
+            f"{len(ctx.scene_times)} mudança(s) de cenário detectada(s)",
+        )
+
+
 class BuildEditPlanStep(PipelineStep):
     """Gera o plano de edição — DEPOIS disso a UI abre a tela de revisão."""
 
@@ -184,6 +208,11 @@ class BuildEditPlanStep(PipelineStep):
         )
         # cortes da IA podem cair no meio de palavras: ajusta p/ bordas
         plan.cuts = snap_cuts_to_word_gaps(plan.cuts, ctx.transcript.words)
+        # alinha cortes às mudanças de cena (edição estilo anúncio)
+        if ctx.scene_times:
+            from core.scene_detect import align_cuts_to_scenes
+
+            plan.cuts = align_cuts_to_scenes(plan.cuts, ctx.scene_times)
         plan = validate_plan(plan)
 
         ctx.edit_plan = plan
@@ -879,6 +908,7 @@ def build_analysis_pipeline(
     return Pipeline(
         [
             TranscribeStep(),
+            SceneDetectStep(),
             BuildEditPlanStep(provider_manager),
             BuildIllustrationPlanStep(provider_manager, image_manager),
             BuildAudioPlanStep(provider_manager, music_manager),
