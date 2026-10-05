@@ -163,26 +163,22 @@ export default function Player({
               ? 0.2 + (p / 0.22) * 0.85
               : p < 0.3
                 ? 1.05 - ((p - 0.22) / 0.08) * 0.05
-                : 1.0 + Math.min(0.18, ((p - 0.3) / 0.58) * 0.18);
+                : 1.0 + Math.min(0.10, ((p - 0.3) / 0.58) * 0.10);
           const blur =
             p < 0.22 ? 8 * (1 - p / 0.22) : p < 0.3 ? 1.2 * (1 - (p - 0.22) / 0.08) : 0;
-          const tx =
-            p < 0.22
-              ? 6 - (p / 0.22) * 4
-              : p < 0.3
-                ? 2 - ((p - 0.22) / 0.08) * 2
-                : 2 - Math.min(1, (p - 0.3) / 0.58) * 8;
+          // deriva sutil (±1.5%): parte do cenário sem sair do frame
+          const tx = 1.5 - p * 3;
           const opacity = p < 0.15 ? p / 0.15 : p > 0.9 ? Math.max(0, (1 - p) / 0.1) : 1;
           kwEl.innerHTML = `<span style="transform:scale(${scale.toFixed(3)}) translateX(${tx.toFixed(2)}%);filter:blur(${blur.toFixed(1)}px);opacity:${opacity.toFixed(3)}">${text}</span>`;
         } else if (style === "impacto") {
           const scale =
             p < 0.09
-              ? 3.1 - (p / 0.09) * 2.14
+              ? 1.9 - (p / 0.09) * 0.94
               : p < 0.16
                 ? 0.96 + ((p - 0.09) / 0.07) * 0.08
                 : p < 0.23
                   ? 1.04 - ((p - 0.16) / 0.07) * 0.04
-                  : 1.0 + Math.min(0.06, ((p - 0.23) / 0.6) * 0.06);
+                  : 1.0 + Math.min(0.04, Math.sin(((p - 0.23) / 0.6) * Math.PI) * 0.03);
           const blur = p < 0.09 ? 6 * (1 - p / 0.09) : 0;
           kwEl.innerHTML = `<span style="transform:scale(${scale.toFixed(3)});filter:blur(${blur.toFixed(1)}px)">${text}</span>`;
         } else if (style === "quebra") {
@@ -202,13 +198,22 @@ export default function Player({
           kwEl.innerHTML = `<span style="transform:scale(${scale.toFixed(3)}) rotate(${rot.toFixed(2)}deg)">${text}</span>`;
         }
         // auto-ajuste exato: mede o span real (fonte já carregada) e
-        // corrige se estourar a largura
+        // corrige se estourar a largura, considerando o pico de escala
+        // da animação de cada efeito
         const span = kwEl.firstElementChild as HTMLElement | null;
         if (span) {
-          const maxW = kwEl.clientWidth * 0.94;
+          const peak: Record<string, number> = {
+            travessia: 1.1,
+            quebra: 1.08,
+            grifo: 1.04,
+            tremor: 1.12,
+            impacto: 1.06,
+          };
+          const maxW = kwEl.clientWidth * 0.92;
           const w = span.offsetWidth;
-          if (w > 0 && w > maxW) {
-            const fix = maxW / w;
+          const need = w * (peak[style] ?? 1.1);
+          if (w > 0 && need > maxW) {
+            const fix = maxW / need;
             span.style.transform = `${span.style.transform || ""} scale(${fix.toFixed(3)})`;
           }
         }

@@ -31,6 +31,19 @@ MIN_GAP_S = 4.0  # mínimo entre um pop e outro
 MIN_WORD_LEN = 4  # palavras muito curtas não chamam atenção
 POP_DURATION_S = 1.5  # tempo em tela
 
+# posição vertical do pop: acima da cabeça (talking head), não no rosto
+KW_Y_FRAC = 0.20
+
+# crescimento máximo PÓS-entrada de cada efeito (usado no auto-ajuste;
+# o slam do impacto é momentâneo e proposital — assenta dentro disso)
+GROW = {
+    "travessia": 1.10,
+    "quebra": 1.08,
+    "grifo": 1.04,
+    "tremor": 1.12,
+    "impacto": 1.06,
+}
+
 # efeitos disponíveis ("" no keyword = ciclo automático)
 EFFECT_STYLES = ["travessia", "quebra", "grifo", "tremor", "impacto"]
 
@@ -176,19 +189,23 @@ def _fit_size(word: str, base_size: int, usable_w: float, grow: float) -> int:
 
 
 def _event_travessia(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
-    """Surge pequena/embaçada e atravessa a cena crescendo (profundidade)."""
+    """Surge pequena/embaçada e atravessa a cena crescendo (profundidade).
+
+    A travessia é sutil (±2% da largura) para a palavra nunca sair do
+    frame — o auto-ajuste já considera esse deslocamento.
+    """
     dur_ms = int((kw.end - kw.start) * 1000)
     grow_end = max(500, dur_ms - 250)
-    cy = int(play_h * 0.4)
-    sx, ex = int(play_w * 0.56), int(play_w * 0.44)
+    cy = int(play_h * KW_Y_FRAC)
+    sx, ex = int(play_w * 0.52), int(play_w * 0.48)
     tags = (
-        f"{{\\an5\\fs{size}\\move({sx},{cy},{ex},{cy},0,{dur_ms})"
+        f"{{\\an5\\fs{size}\\move({sx},{cy + 8},{ex},{cy - 8},0,{dur_ms})"
         f"\\c{ORANGE}\\3c{WHITE}\\4c&H000000&"
         f"\\blur8\\fscx20\\fscy20"
         f"\\t(0,{int(dur_ms * 0.22)},\\fscx105\\fscy105\\blur1.2)"
         f"\\t({int(dur_ms * 0.22)},{int(dur_ms * 0.3)},"
         f"\\fscx100\\fscy100\\blur0)"
-        f"\\t({int(dur_ms * 0.3)},{grow_end},\\fscx118\\fscy118)"
+        f"\\t({int(dur_ms * 0.3)},{grow_end},\\fscx110\\fscy110)"
         f"\\fad(80,220)}}"
     )
     return tags
@@ -200,13 +217,14 @@ def _event_quebra(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int
     sweep_ms = min(900, int(dur_ms * 0.55))
     per_letter = max(1, sweep_ms // max(1, len(word)) // 10)  # centissegundos
     kar = "".join(f"\\k{per_letter}" for _ in word)
-    cy = int(play_h * 0.4)
+    cy = int(play_h * KW_Y_FRAC)
     tags = (
         f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
         f"\\1c{ORANGE}\\2c{WHITE}\\3c{DARK}\\4c&H000000&"
         f"{kar}"
         f"\\fscx30\\fscy30\\t(0,180,\\fscx108\\fscy108)"
         f"\\t(180,280,\\fscx100\\fscy100)"
+        f"\\t(380,700,\\fscx103\\fscy97)\\t(700,1020,\\fscx100\\fscy100)"
         f"\\fad(50,200)}}"
     )
     return tags
@@ -219,7 +237,7 @@ def _event_grifo(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int)
     ela acompanha a largura exata do texto em qualquer tamanho de fonte.
     """
     dur_ms = int((kw.end - kw.start) * 1000)
-    cy = int(play_h * 0.4)
+    cy = int(play_h * KW_Y_FRAC)
     bar_h = max(6, int(size * 0.07))
     # barra (layer 20, atrás do texto): cresce como um grifo de caneta
     bar = (
@@ -235,7 +253,9 @@ def _event_grifo(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int)
         f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
         f"\\1c{WHITE}\\3c{DARK}\\4c&H000000&"
         f"\\fscx40\\fscy40\\t(0,160,\\fscx104\\fscy104)"
-        f"\\t(160,260,\\fscx100\\fscy100)\\fad(40,180)}}"
+        f"\\t(160,260,\\fscx100\\fscy100)"
+        f"\\t(360,680,\\fscx103\\fscy97)\\t(680,1000,\\fscx100\\fscy100)"
+        f"\\fad(40,180)}}"
     )
     return bar + "\n" + f"Dialogue: 30,{_fmt_time(kw.start)},{_fmt_time(kw.end)},Keyword,,0,0,0,,{text}{word}{{\\r}}"
 
@@ -254,7 +274,7 @@ def _event_tremor(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int
         shake += f"\\t({t},{end},\\frz{signs[i % len(signs)]}\\fscy{102 if i % 2 else 98})"
         t += step
         i += 1
-    cy = int(play_h * 0.4)
+    cy = int(play_h * KW_Y_FRAC)
     tags = (
         f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
         f"\\1c{WHITE}\\3c{DARK}\\4c&H000000&"
@@ -266,17 +286,21 @@ def _event_tremor(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int
 
 
 def _event_impacto(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
-    """Palavra vermelha que desaba na tela (slam)."""
-    cy = int(play_h * 0.4)
+    """Palavra vermelha que desaba na tela (slam).
+
+    O slam vem de 190% (momentâneo, ~140ms) e assenta em ≤106% — o
+    auto-ajuste garante que o tamanho assentado nunca saia do frame.
+    """
+    cy = int(play_h * KW_Y_FRAC)
     dur_ms = int((kw.end - kw.start) * 1000)
     tags = (
         f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
         f"\\1c{RED}\\3c{WHITE}\\4c&H000000&"
-        f"\\fscx310\\fscy310\\blur6"
+        f"\\fscx190\\fscy190\\blur6"
         f"\\t(0,140,\\fscx96\\fscy96\\blur0)"
         f"\\t(140,240,\\fscx104\\fscy104)"
         f"\\t(240,340,\\fscx100\\fscy100)"
-        f"\\t(340,{max(500, dur_ms - 300)},\\fscx106\\fscy106)"
+        f"\\t(440,760,\\fscx103\\fscy97)\\t(760,1080,\\fscx100\\fscy100)"
         f"\\fad(0,220)}}"
     )
     return tags
@@ -300,7 +324,8 @@ def write_keywords_ass(
     """Camada ASS com os pops das palavras-chave (efeitos variados)."""
     vertical = play_h >= play_w
     base_size = int(play_w * (0.17 if vertical else 0.11))
-    usable_w = play_w * 0.92
+    # margem para contorno + sombra dos dois lados (nunca estourar)
+    margin = max(6, base_size // 14) + 6 + 22
 
     lines = [
         _HEADER.format(
@@ -318,8 +343,13 @@ def write_keywords_ass(
         if not word or kw.end <= kw.start:
             continue
         style = kw.style if kw.style in _EVENTS else "travessia"
-        # auto-ajuste com a fonte real: cada efeito tem um fator de growth
-        grow = 1.18 if style in ("travessia", "impacto", "tremor") else 1.0
+        # auto-ajuste com a fonte real: crescimento pós-entrada do efeito
+        grow = GROW.get(style, 1.10)
+        if style == "travessia":
+            # a palavra anda ±2% da largura na tela → folga extra
+            usable_w = play_w * 0.96 - margin
+        else:
+            usable_w = play_w - margin * 2
         size = _fit_size(word, base_size, usable_w, grow)
         if style == "grifo":
             lines.append(_event_grifo(kw, word, size, play_w, play_h))

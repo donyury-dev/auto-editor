@@ -96,13 +96,16 @@ def test_write_keywords_ass_estilos_variados(tmp_path):
     # grifo: barra = palavra achatada em laranja por baixo do texto branco
     assert "\\fscy8" in text
     assert "&HFFFFFF&" in text
-    # impacto: vermelho + slam (escala inicial grande)
+    # impacto: vermelho + slam (escala inicial grande, mas assenta ≤106%)
     assert "2b39e6" in text.lower()  # vermelho em BGR (formato ASS)
-    assert "\\fscx310" in text
+    assert "\\fscx190" in text
+    assert "\\fscx310" not in text  # slam antigo estourava o frame
     # tremor: rotação oscilante
     assert "\\frz3" in text
     # quebra: karaoke por letra
     assert "\\k1" in text or "\\k2" in text or "\\k3" in text
+    # posição acima da cabeça (20% da altura), não no rosto
+    assert f"\\pos(540,{int(1920 * 0.20)})" in text
 
 
 def test_write_keywords_ass_auto_ajuste_palavra_longa(tmp_path):
@@ -121,11 +124,12 @@ def test_write_keywords_ass_auto_ajuste_palavra_longa(tmp_path):
     fs_longa = int(re.search(r"\\fs(\d+)", longa_line).group(1))
     fs_curta = int(re.search(r"\\fs(\d+)", curta_line).group(1))
     assert fs_longa < fs_curta  # palavra longa recebe fonte menor
-    # largura da longa no ponto máximo (118%) cabe no frame
+    # largura da longa no crescimento máximo (110%) cabe no frame,
+    # respeitando a folga real da travessia (anda ±2% da largura)
     from core.keyword_engine import _measure_text
 
-    max_w = _measure_text("TRANSFORMAR", fs_longa) * 1.18
-    assert max_w <= 1080 * 0.95
+    max_w = _measure_text("TRANSFORMAR", fs_longa) * 1.10
+    assert max_w <= 1080 * 0.96 - 40
 
 
 def test_write_keywords_ass_vazio(tmp_path):
