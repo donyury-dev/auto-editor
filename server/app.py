@@ -108,6 +108,8 @@ class TimelineUpdate(BaseModel):
     callouts: list[dict] = []
     music: dict = {}
     sfx: list[dict] = []
+    caption_style: str = ""
+    caption_scale: float = 0.0
 
 
 # ----------------------------------------------------------------------
@@ -208,6 +210,8 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
         },
         "captions": captions,
         "callouts": callouts,
+        "caption_style": settings.caption_style,
+        "caption_scale": float(getattr(settings, "caption_scale", 1.0)),
         "music": {
             "path": str(ctx.audio_plan.music_path)
             if ctx.audio_plan and ctx.audio_plan.music_path
@@ -239,6 +243,14 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
     if ctx is None:
         return
     assert ctx.edit_plan is not None
+
+    # estilo/tamanho da legenda escolhidos na UI
+    cs = tl.get("caption_style")
+    if cs:
+        ctx.settings.caption_style = str(cs)
+    sc = tl.get("caption_scale")
+    if sc:
+        ctx.settings.caption_scale = max(0.4, min(2.0, float(sc)))
 
     ctx.edit_plan = EditPlan(
         cuts=[
@@ -511,8 +523,34 @@ def put_timeline(project_id: str, update: TimelineUpdate) -> dict:
     if update.music:
         tl["music"] = update.music
     tl["sfx"] = update.sfx
+    if update.caption_style:
+        tl["caption_style"] = update.caption_style
+    if update.caption_scale > 0:
+        tl["caption_scale"] = update.caption_scale
     _save_project_json(state)
     return {"ok": True}
+
+
+@app.get("/api/caption-styles")
+def caption_styles() -> dict:
+    """Presets de estilo de legenda disponíveis (espelho de core/caption_styles)."""
+    from core.caption_styles import PRESETS
+
+    styles = []
+    for sid, s in PRESETS.items():
+        styles.append(
+            {
+                "id": sid,
+                "font_family": s.font_name,
+                "font_size_vertical": s.font_size_vertical,
+                "font_size_horizontal": s.font_size_horizontal,
+                "primary_color": s.primary_color,
+                "highlight_color": s.highlight_color,
+                "outline": s.outline,
+                "uppercase": s.uppercase,
+            }
+        )
+    return {"styles": styles}
 
 
 @app.get("/api/projects/{project_id}/video")

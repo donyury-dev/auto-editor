@@ -54,6 +54,19 @@ export interface Timeline {
   callouts: CalloutBlock[];
   music: { path: string | null; label: string; volume: number };
   sfx: SfxBlock[];
+  captionStyle?: string;
+  captionScale?: number;
+}
+
+export interface CaptionStylePreset {
+  id: string;
+  font_family: string;
+  font_size_vertical: number;
+  font_size_horizontal: number;
+  primary_color: string;
+  highlight_color: string;
+  outline: number;
+  uppercase: boolean;
 }
 
 export interface LibraryItem {

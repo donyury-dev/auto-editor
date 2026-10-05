@@ -116,8 +116,12 @@ class BuildSubtitlesStep(PipelineStep):
         # usuário (sobrepõe as margens padrão do preset).
         pct = max(1, min(95, ctx.settings.caption_vertical_position))
         margin_v = int(target_h * pct / 100)
+        scale = max(0.4, min(2.0, float(getattr(ctx.settings, "caption_scale", 1.0))))
+        base = get_caption_style(ctx.settings.caption_style)
         style = replace(
-            get_caption_style(ctx.settings.caption_style),
+            base,
+            font_size_vertical=max(20, int(base.font_size_vertical * scale)),
+            font_size_horizontal=max(16, int(base.font_size_horizontal * scale)),
             margin_v_vertical=margin_v,
             margin_v_horizontal=margin_v,
         )

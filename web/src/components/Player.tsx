@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Timeline } from "../types";
+import type { CaptionStylePreset, Timeline } from "../types";
 
 interface PlayerProps {
   videoUrl: string;
@@ -7,6 +7,7 @@ interface PlayerProps {
   resultMode: boolean;
   muted: boolean;
   videoRef: React.RefObject<HTMLVideoElement>;
+  captionStyles: CaptionStylePreset[];
 }
 
 /** Player com legendas e call-outs desenhados por cima, sincronizados. */
@@ -16,10 +17,31 @@ export default function Player({
   resultMode,
   muted,
   videoRef,
+  captionStyles,
 }: PlayerProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const captionRef = useRef<HTMLDivElement>(null);
   const calloutRef = useRef<HTMLDivElement>(null);
+
+  const preset =
+    captionStyles.find((s) => s.id === (timeline.captionStyle || "")) ||
+    captionStyles[0];
+  const scale = timeline.captionScale || 1;
+  const vertical = timeline.video.height >= timeline.video.width;
+  const baseFs = preset
+    ? vertical
+      ? preset.font_size_vertical
+      : preset.font_size_horizontal
+    : 74;
+  // referência: 1920px de altura no vídeo vertical, 1080 no horizontal
+  const refH = vertical ? 1920 : 1080;
+  const captionStyleCss: React.CSSProperties = preset
+    ? {
+        fontFamily: `"${preset.font_family}", "Arial Black", Impact, sans-serif`,
+        fontSize: `${((baseFs * scale) / refH) * 100}cqh`,
+        textTransform: preset.uppercase ? "uppercase" : "none",
+      }
+    : {};
 
   useEffect(() => {
     let raf = 0;
@@ -102,7 +124,15 @@ export default function Player({
       />
       <div className="overlays" ref={overlayRef}>
         <div className="callout-overlay" ref={calloutRef}></div>
-        <div className="caption-overlay" ref={captionRef}></div>
+        <div
+          className="caption-overlay"
+          ref={captionRef}
+          style={{
+            ...captionStyleCss,
+            color: preset?.primary_color,
+            ["--cap-highlight" as any]: preset?.highlight_color,
+          }}
+        ></div>
       </div>
     </div>
   );

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import type { Selection, Timeline } from "../types";
+import type { CaptionStylePreset, Selection, Timeline } from "../types";
 
 interface PropertiesProps {
   timeline: Timeline;
   selection: Selection;
   onChange: (t: Timeline) => void;
   onDelete: () => void;
+  captionStyles: CaptionStylePreset[];
 }
 
 /** Painel de propriedades do item selecionado (corte/legenda/call-out/música). */
@@ -14,6 +15,7 @@ export default function Properties({
   selection,
   onChange,
   onDelete,
+  captionStyles,
 }: PropertiesProps) {
   if (!selection) {
     return (
@@ -23,6 +25,11 @@ export default function Properties({
           Selecione um corte, legenda ou call-out na timeline para editar.
         </p>
         <TransicaoPicker timeline={timeline} onChange={onChange} />
+        <CaptionStylePicker
+          timeline={timeline}
+          onChange={onChange}
+          captionStyles={captionStyles}
+        />
       </aside>
     );
   }
@@ -59,6 +66,11 @@ export default function Properties({
         <p className="hint">
           Corrige erros de transcrição — vale para a prévia e para o render.
         </p>
+        <CaptionStylePicker
+          timeline={timeline}
+          onChange={onChange}
+          captionStyles={captionStyles}
+        />
       </aside>
     );
   }
@@ -113,6 +125,51 @@ export default function Properties({
         </button>
       )}
     </aside>
+  );
+}
+
+function CaptionStylePicker({
+  timeline,
+  onChange,
+  captionStyles,
+}: {
+  timeline: Timeline;
+  onChange: (t: Timeline) => void;
+  captionStyles: CaptionStylePreset[];
+}) {
+  if (captionStyles.length === 0) return null;
+  const current = timeline.captionStyle || captionStyles[0].id;
+  const scale = timeline.captionScale || 1;
+  return (
+    <>
+      <h3>Estilo da legenda</h3>
+      <select
+        value={current}
+        onChange={(e) => onChange({ ...timeline, captionStyle: e.target.value })}
+      >
+        {captionStyles.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.id} ({s.font_family})
+          </option>
+        ))}
+      </select>
+      <label>
+        Tamanho: {Math.round(scale * 100)}%
+        <input
+          type="range"
+          min={50}
+          max={150}
+          value={Math.round(scale * 100)}
+          onChange={(e) =>
+            onChange({
+              ...timeline,
+              captionScale: Number(e.target.value) / 100,
+            })
+          }
+        />
+      </label>
+      <p className="hint">Vale para a prévia e para o render final.</p>
+    </>
   );
 }
 

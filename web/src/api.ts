@@ -1,4 +1,4 @@
-import type { Library, Timeline } from "./types";
+import type { CaptionStylePreset, Library, Timeline } from "./types";
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -70,8 +70,13 @@ export const api = {
         callouts: timeline.callouts,
         music: timeline.music,
         sfx: timeline.sfx,
+        caption_style: timeline.captionStyle || "",
+        caption_scale: timeline.captionScale || 0,
       }),
     }).then((r) => j<{ ok: boolean }>(r)),
+
+  captionStyles: () =>
+    fetch("/api/caption-styles").then((r) => j<{ styles: CaptionStylePreset[] }>(r)),
 
   library: () => fetch("/api/library").then((r) => j<Library>(r)),
 

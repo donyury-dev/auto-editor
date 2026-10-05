@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, openSSE } from "./api";
-import type { Library, LibraryItem, Selection, Timeline } from "./types";
+import type {
+  CaptionStylePreset,
+  Library,
+  LibraryItem,
+  Selection,
+  Timeline,
+} from "./types";
 import Player from "./components/Player";
 import TimelineView from "./components/Timeline";
 import LibraryPanel from "./components/Library";
@@ -16,6 +22,7 @@ export default function App() {
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [library, setLibrary] = useState<Library | null>(null);
+  const [captionStyles, setCaptionStyles] = useState<CaptionStylePreset[]>([]);
   const [resultMode, setResultMode] = useState(true);
   const [muted, setMuted] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -30,6 +37,7 @@ export default function App() {
 
   useEffect(() => {
     api.library().then(setLibrary).catch(() => {});
+    api.captionStyles().then((d) => setCaptionStyles(d.styles)).catch(() => {});
   }, [projectId]);
 
   // Reabre um projeto existente via URL: /?p=<projectId>
@@ -292,38 +300,7 @@ export default function App() {
     <div className="editor">
       <header className="topbar">
         <span className="logo">Auto Editor</span>
-        <button onClick={togglePlay} className="primary">
-          {playing ? "⏸ Pausar" : "▶ Play"}
-        </button>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={resultMode}
-            onChange={(e) => setResultMode(e.target.checked)}
-          />
-          Prévia do resultado
-        </label>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={muted}
-            onChange={(e) => setMuted(e.target.checked)}
-          />
-          Mudo
-        </label>
-        <button onClick={addCutHere}>+ Corte aqui</button>
-        {selection && <button className="danger" onClick={deleteSelection}>Excluir seleção</button>}
         <div className="spacer" />
-        <label className="zoom">
-          Zoom
-          <input
-            type="range"
-            min={1}
-            max={20}
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-          />
-        </label>
         <button className="accent" onClick={doRender} disabled={rendering}>
           {rendering ? "Renderizando…" : "Renderizar"}
         </button>
@@ -371,13 +348,53 @@ export default function App() {
             resultMode={resultMode}
             muted={muted}
             videoRef={videoRef}
+            captionStyles={captionStyles}
           />
+          <div className="controls">
+            <button onClick={togglePlay} className="primary">
+              {playing ? "⏸ Pausar" : "▶ Play"}
+            </button>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={resultMode}
+                onChange={(e) => setResultMode(e.target.checked)}
+              />
+              Prévia do resultado
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={muted}
+                onChange={(e) => setMuted(e.target.checked)}
+              />
+              Mudo
+            </label>
+            <button onClick={addCutHere}>+ Corte aqui</button>
+            {selection && (
+              <button className="danger" onClick={deleteSelection}>
+                Excluir seleção
+              </button>
+            )}
+            <div className="spacer" />
+            <label className="zoom">
+              Zoom
+              <input
+                type="range"
+                min={1}
+                max={20}
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+              />
+            </label>
+          </div>
         </div>
         <PropertiesPanel
           timeline={timeline}
           selection={selection}
           onChange={commit}
           onDelete={deleteSelection}
+          captionStyles={captionStyles}
         />
       </div>
 
