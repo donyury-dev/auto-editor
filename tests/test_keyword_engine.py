@@ -64,10 +64,33 @@ def test_write_keywords_ass_gera_dialogos(tmp_path):
     assert text.count("Dialogue: 30,") == 2
     assert "TECNOLOGIA" in text
     assert "IMPACTO" in text
-    # contorno branco + sombra + animação de escala
+    # contorno branco + sombra + travessia (move/blur/escala)
     assert "\\3c&HFFFFFF&" in text
-    assert "\\fscx22" in text
-    assert "\\pos(540,768)" in text
+    assert "\\move(" in text
+    assert "\\blur8" in text
+    assert "\\fad(80,220)" in text
+
+
+def test_write_keywords_ass_auto_ajuste_palavra_longa(tmp_path):
+    curta = KeywordPop(start=1.0, end=2.5, word="casa")
+    longa = KeywordPop(start=5.0, end=6.5, word="transformar")
+    out = write_keywords_ass([curta, longa], tmp_path / "kw.ass", 1080, 1920)
+    text = out.read_text(encoding="utf-8")
+    import re
+
+    scales = re.findall(r"\\blur8\\fscx(\d+)\\fscy", text)
+    # escala inicial da palavra longa é menor que a da curta
+    assert int(scales[0]) > int(scales[1])
+    # e mesmo reduzida, a palavra longa cabe na largura do frame
+    longa_line = next(
+        line for line in text.splitlines() if "TRANSFORMAR" in line
+    )
+    final_scale = max(
+        int(m)
+        for m in re.findall(r"\\t\(\d+,\d+,\\fscx(\d+)", longa_line)
+    )
+    est_w = 11 * 0.56 * 183 * (final_scale / 100)
+    assert est_w <= 1080 * 0.95
 
 
 def test_write_keywords_ass_vazio(tmp_path):

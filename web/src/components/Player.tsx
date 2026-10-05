@@ -145,26 +145,59 @@ export default function Player({
         call.style.display = "none";
       }
     }
-    // palavra-chave em pop gigante (estilo anúncio)
+    // palavra-chave em pop gigante com travessia (estilo anúncio):
+    // surge pequena/embaçada, atravessa a cena e cresce (profundidade)
     const kwEl = keywordRef.current;
     if (kwEl) {
       const kw = timeline.keywords.find(
         (k) => t >= k.start - 0.02 && t <= k.end && k.text.trim()
       );
       if (kw) {
-        const elapsed = t - kw.start;
-        // pop 3D: estoura com overshoot e segue crescendo até o fim
-        let scale = 1;
-        if (elapsed < 0.2) scale = 0.22 + (elapsed / 0.2) * 0.94;
-        else if (elapsed < 0.34) scale = 1.16 - ((elapsed - 0.2) / 0.14) * 0.16;
-        else scale = 1.0 + Math.min(0.14, (elapsed - 0.34) * 0.1);
-        const fadeOut = Math.max(0, Math.min(1, (kw.end - t) / 0.22));
-        kwEl.innerHTML = `<span style="display:inline-block;transform:scale(${scale.toFixed(3)});opacity:${fadeOut.toFixed(3)}">${escapeHtml(kw.text.toUpperCase())}</span>`;
+        const dur = Math.max(0.4, kw.end - kw.start);
+        const p = Math.min(1, Math.max(0, (t - kw.start) / dur));
+        // progressões espelhando a camada ASS do render
+        const scale =
+          p < 0.22
+            ? 0.2 + (p / 0.22) * 0.85
+            : p < 0.3
+              ? 1.05 - ((p - 0.22) / 0.08) * 0.05
+              : 1.0 + Math.min(0.18, ((p - 0.3) / 0.58) * 0.18);
+        const blur =
+          p < 0.22 ? 8 * (1 - p / 0.22) : p < 0.3 ? 1.2 * (1 - (p - 0.22) / 0.08) : 0;
+        const tx =
+          p < 0.22
+            ? 6 - (p / 0.22) * 4
+            : p < 0.3
+              ? 2 - ((p - 0.22) / 0.08) * 2
+              : 2 - Math.min(1, (p - 0.3) / 0.58) * 8;
+        const opacity =
+          p < 0.15 ? p / 0.15 : p > 0.9 ? Math.max(0, (1 - p) / 0.1) : 1;
+        kwEl.innerHTML = `<span style="display:inline-block;transform:scale(${(scale * fitScale(kwEl, kw.text.toUpperCase())).toFixed(3)}) translateX(${tx.toFixed(2)}%);filter:blur(${blur.toFixed(1)}px);opacity:${opacity.toFixed(3)}">${escapeHtml(kw.text.toUpperCase())}</span>`;
         kwEl.style.display = "block";
       } else {
         kwEl.style.display = "none";
       }
     }
+  }
+
+  // auto-ajuste: devolve o fator de escala pra palavra caber na largura
+  function fitScale(el: HTMLDivElement, text: string): number {
+    const maxW = el.clientWidth * 0.94;
+    if (maxW <= 0) return 1;
+    // largura aproximada: usa medição via canvas para ser fiel à fonte
+    const canvas = fitScaleCanvas();
+    const ctx = canvas.getContext("2d");
+    const style = getComputedStyle(el);
+    ctx!.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const width = ctx!.measureText(text).width;
+    if (width <= maxW) return 1;
+    return Math.max(0.3, maxW / width);
+  }
+
+  let _fitCanvas: HTMLCanvasElement | null = null;
+  function fitScaleCanvas(): HTMLCanvasElement {
+    if (!_fitCanvas) _fitCanvas = document.createElement("canvas");
+    return _fitCanvas;
   }
 
   return (

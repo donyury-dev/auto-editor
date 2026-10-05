@@ -136,19 +136,27 @@ def write_keywords_ass(
     play_w: int,
     play_h: int,
 ) -> Path:
-    """Camada ASS com o pop das palavras-chave (contorno branco + sombra)."""
+    """Camada ASS com o pop das palavras-chave.
+
+    Efeito travessia: a palavra surge pequena e embaçada (como se viesse
+    de trás do enquadramento), atravessa a cena deslizando e crescendo —
+    sensação de profundidade/parte do cenário. O tamanho é auto-ajustado
+    por palavra pra nunca estourar a largura do frame.
+    """
     vertical = play_h >= play_w
-    # palavra gigante no terço superior, como no anúncio
-    font_size = int(play_w * (0.17 if vertical else 0.11))
+    base_size = int(play_w * (0.17 if vertical else 0.11))
+    usable_w = play_w * 0.92
+    # Anton maiúscula: largura média ≈ 0.56 × tamanho da fonte
+    char_ratio = 0.56
 
     lines = [
         _HEADER.format(
             play_w=play_w,
             play_h=play_h,
             font_name="Anton",
-            font_size=font_size,
+            font_size=base_size,
             primary=rgb_to_ass("#FF6B2B"),
-            outline=max(6, font_size // 14),
+            outline=max(6, base_size // 14),
         )
     ]
     count = 0
@@ -156,18 +164,31 @@ def write_keywords_ass(
         word = kw.word.strip().upper()
         if not word or kw.end <= kw.start:
             continue
+        # auto-ajuste: reduz a escala pra caber na largura MESMO no ponto
+        # mais largo da animação (+18% de crescimento no final)
+        est_w = len(word) * char_ratio * base_size
+        fit = (
+            min(1.0, usable_w / (est_w * 1.18)) if est_w > 0 else 1.0
+        )
+        fit = max(0.3, fit)
+
         dur_ms = int((kw.end - kw.start) * 1000)
         grow_end = max(500, dur_ms - 250)
-        # pop 3D: entra pequeno, estoura com overshoot e segue crescendo
-        # devagar até o fim (sensação de aproximação da câmera)
+        cy = int(play_h * 0.4)
+        # desliza pela cena (direita → esquerda) enquanto cresce
+        sx, ex = int(play_w * 0.56), int(play_w * 0.44)
+        # travessia 3D: começa pequena/embaçada, estoura e segue crescendo
         tags = (
-            f"{{\\an5\\pos({play_w // 2},{int(play_h * 0.4)})"
+            f"{{\\an5\\move({sx},{cy},{ex},{cy},0,{dur_ms})"
             f"\\c{rgb_to_ass('#FF6B2B')}\\3c&HFFFFFF&\\4c&H000000&"
-            f"\\fscx22\\fscy22"
-            f"\\t(0,200,\\fscx116\\fscy116)"
-            f"\\t(200,340,\\fscx100\\fscy100)"
-            f"\\t(340,{grow_end},\\fscx112\\fscy112)"
-            f"\\fad(60,220)}}"
+            f"\\blur8\\fscx{20 * fit:.0f}\\fscy{20 * fit:.0f}"
+            f"\\t(0,{int(dur_ms * 0.22)},\\fscx{105 * fit:.0f}"
+            f"\\fscy{105 * fit:.0f}\\blur1.2)"
+            f"\\t({int(dur_ms * 0.22)},{int(dur_ms * 0.3)},"
+            f"\\fscx{100 * fit:.0f}\\fscy{100 * fit:.0f}\\blur0)"
+            f"\\t({int(dur_ms * 0.3)},{grow_end},\\fscx{118 * fit:.0f}"
+            f"\\fscy{118 * fit:.0f})"
+            f"\\fad(80,220)}}"
         )
         lines.append(
             f"Dialogue: 30,{_fmt_time(kw.start)},{_fmt_time(kw.end)},"
