@@ -203,6 +203,27 @@ export default function App() {
     setSelection({ kind: "keyword", id });
   };
 
+  const moveKeyword = useCallback((id: string, x: number, y: number) => {
+    setTimeline(
+      (t) =>
+        t && {
+          ...t,
+          keywords: t.keywords.map((k) => (k.id === id ? { ...k, x, y } : k)),
+        }
+    );
+  }, []);
+
+  const moveKeywordEnd = useCallback(() => {
+    setTimeline((t) => {
+      if (t && projectId) api.saveTimeline(projectId, t).catch(() => {});
+      return t;
+    });
+  }, [projectId]);
+
+  const selectKeyword = useCallback((id: string) => {
+    setSelection({ kind: "keyword", id });
+  }, []);
+
   const deleteSelection = () => {
     if (!timeline || !selection) return;
     if (selection.kind === "cut") {
@@ -394,6 +415,9 @@ export default function App() {
             muted={muted}
             videoRef={videoRef}
             captionStyles={captionStyles}
+            onKeywordMove={moveKeyword}
+            onKeywordMoveEnd={moveKeywordEnd}
+            onSelectKeyword={selectKeyword}
           />
           <div className="controls">
             <button onClick={togglePlay} className="primary">

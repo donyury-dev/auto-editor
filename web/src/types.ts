@@ -40,6 +40,9 @@ export interface KeywordBlock {
   end: number;
   text: string;
   style?: string; // travessia | quebra | grifo | tremor | impacto | ""
+  x?: number; // posição horizontal (0..1, fração da largura)
+  y?: number; // posição vertical (0..1; <0 = padrão acima da cabeça)
+  scale?: number; // multiplicador de tamanho (1 = padrão)
 }
 
 export interface SfxBlock {

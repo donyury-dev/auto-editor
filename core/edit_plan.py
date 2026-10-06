@@ -69,6 +69,9 @@ class KeywordPop:
     end: float
     word: str = ""
     style: str = ""  # "" = escolha automática (ciclo de efeitos)
+    x: float = 0.5  # posição horizontal (fração da largura, 0..1)
+    y: float = -1.0  # posição vertical (fração da altura; <0 = acima da cabeça)
+    scale: float = 1.0  # multiplicador de tamanho escolhido pelo usuário
 
     @property
     def duration(self) -> float:
@@ -80,6 +83,9 @@ class KeywordPop:
             "end": self.end,
             "word": self.word,
             "style": self.style,
+            "x": round(self.x, 4),
+            "y": round(self.y, 4),
+            "scale": round(self.scale, 3),
         }
 
     @classmethod
@@ -89,6 +95,9 @@ class KeywordPop:
             end=float(data["end"]),
             word=str(data.get("word", "")),
             style=str(data.get("style", "") or ""),
+            x=float(data.get("x", 0.5)),
+            y=float(data.get("y", -1.0)),
+            scale=float(data.get("scale", 1.0)),
         )
 
 

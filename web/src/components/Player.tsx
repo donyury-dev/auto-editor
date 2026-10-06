@@ -8,6 +8,9 @@ interface PlayerProps {
   muted: boolean;
   videoRef: React.RefObject<HTMLVideoElement>;
   captionStyles: CaptionStylePreset[];
+  onKeywordMove?: (id: string, x: number, y: number) => void;
+  onKeywordMoveEnd?: () => void;
+  onSelectKeyword?: (id: string) => void;
 }
 
 /** Player com legendas e call-outs desenhados por cima, sincronizados. */
@@ -18,12 +21,23 @@ export default function Player({
   muted,
   videoRef,
   captionStyles,
+  onKeywordMove,
+  onKeywordMoveEnd,
+  onSelectKeyword,
 }: PlayerProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const captionRef = useRef<HTMLDivElement>(null);
   const calloutRef = useRef<HTMLDivElement>(null);
   const fxRef = useRef<HTMLDivElement>(null);
   const keywordRef = useRef<HTMLDivElement>(null);
+  const kwShownRef = useRef<string | null>(null);
+  const kwDragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
   const lastFxRef = useRef("");
 
   const preset =
@@ -157,6 +171,16 @@ export default function Player({
         const style = kw.style || "travessia";
         kwEl.className = `keyword-overlay kwfx-${style}`;
         const text = escapeHtml(kw.text.toUpperCase());
+        // posição/tamanho customizados (arrastáveis na prévia)
+        const fx = kw.x ?? 0.5;
+        const fy = kw.y !== undefined && kw.y >= 0 ? kw.y : 0.2;
+        const fscale = kw.scale ?? 1;
+        kwShownRef.current = kw.id;
+        kwEl.style.left = `${(fx * 100).toFixed(2)}%`;
+        kwEl.style.top = `${(fy * 100).toFixed(2)}%`;
+        kwEl.style.right = "auto";
+        kwEl.style.transform = "translate(-50%, -50%)";
+        kwEl.style.fontSize = `${(13 * fscale).toFixed(2)}cqh`;
         if (style === "travessia") {
           const scale =
             p < 0.22
@@ -216,12 +240,51 @@ export default function Player({
             const fix = maxW / need;
             span.style.transform = `${span.style.transform || ""} scale(${fix.toFixed(3)})`;
           }
+          // só a palavra é clicável/arrastável (o resto deixa o vídeo passar)
+          span.style.pointerEvents = "auto";
+          span.style.cursor = "grab";
         }
         kwEl.style.display = "block";
       } else {
+        kwShownRef.current = null;
         kwEl.style.display = "none";
       }
     }
+  }
+
+  function handleKwPointerDown(e: React.PointerEvent) {
+    const id = kwShownRef.current;
+    if (!id || !onKeywordMove) return;
+    const kw = timeline.keywords.find((k) => k.id === id);
+    if (!kw) return;
+    e.preventDefault();
+    onSelectKeyword?.(id);
+    kwDragRef.current = {
+      id,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: kw.x ?? 0.5,
+      origY: kw.y !== undefined && kw.y >= 0 ? kw.y : 0.2,
+    };
+    const onMove = (ev: PointerEvent) => {
+      const drag = kwDragRef.current;
+      const box = keywordRef.current?.parentElement;
+      if (!drag || !box) return;
+      const rect = box.getBoundingClientRect();
+      const dx = (ev.clientX - drag.startX) / rect.width;
+      const dy = (ev.clientY - drag.startY) / rect.height;
+      const x = Math.min(0.94, Math.max(0.06, drag.origX + dx));
+      const y = Math.min(0.92, Math.max(0.04, drag.origY + dy));
+      onKeywordMove(drag.id, x, y);
+    };
+    const onUp = () => {
+      kwDragRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      onKeywordMoveEnd?.();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   return (
@@ -235,7 +298,11 @@ export default function Player({
       />
       <div className="overlays" ref={overlayRef}>
         <div className="fx-overlay" ref={fxRef} />
-        <div className="keyword-overlay" ref={keywordRef}></div>
+        <div
+          className="keyword-overlay"
+          ref={keywordRef}
+          onPointerDown={handleKwPointerDown}
+        ></div>
         <div className="callout-overlay" ref={calloutRef}></div>
         <div
           className="caption-overlay"

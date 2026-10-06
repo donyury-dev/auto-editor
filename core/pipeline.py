@@ -437,7 +437,15 @@ class ApplyIllustrationsStep(PipelineStep):
             if end - start < 0.3:
                 continue
             keywords.append(
-                KeywordPop(start=start, end=end, word=k.word, style=k.style)
+                KeywordPop(
+                    start=start,
+                    end=end,
+                    word=k.word,
+                    style=k.style,
+                    x=k.x,
+                    y=k.y,
+                    scale=k.scale,
+                )
             )
 
         if not approved_images and not approved_callouts and not keywords:

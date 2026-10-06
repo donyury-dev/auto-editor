@@ -188,6 +188,17 @@ def _fit_size(word: str, base_size: int, usable_w: float, grow: float) -> int:
     return size
 
 
+def _kw_pos(kw: KeywordPop, play_w: int, play_h: int) -> tuple[int, int]:
+    """Centro do pop: posição customizada do usuário ou padrão."""
+    cx = int(min(0.95, max(0.05, kw.x)) * play_w) if kw.x >= 0 else play_w // 2
+    cy = (
+        int(min(0.95, max(0.05, kw.y)) * play_h)
+        if kw.y >= 0
+        else int(play_h * KW_Y_FRAC)
+    )
+    return cx, cy
+
+
 def _event_travessia(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int) -> str:
     """Surge pequena/embaçada e atravessa a cena crescendo (profundidade).
 
@@ -196,8 +207,9 @@ def _event_travessia(kw: KeywordPop, word: str, size: int, play_w: int, play_h: 
     """
     dur_ms = int((kw.end - kw.start) * 1000)
     grow_end = max(500, dur_ms - 250)
-    cy = int(play_h * KW_Y_FRAC)
-    sx, ex = int(play_w * 0.52), int(play_w * 0.48)
+    cx, cy = _kw_pos(kw, play_w, play_h)
+    drift = int(play_w * 0.02)
+    sx, ex = cx + drift, cx - drift
     tags = (
         f"{{\\an5\\fs{size}\\move({sx},{cy + 8},{ex},{cy - 8},0,{dur_ms})"
         f"\\c{ORANGE}\\3c{WHITE}\\4c&H000000&"
@@ -217,9 +229,9 @@ def _event_quebra(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int
     sweep_ms = min(900, int(dur_ms * 0.55))
     per_letter = max(1, sweep_ms // max(1, len(word)) // 10)  # centissegundos
     kar = "".join(f"\\k{per_letter}" for _ in word)
-    cy = int(play_h * KW_Y_FRAC)
+    _, cy = _kw_pos(kw, play_w, play_h)
     tags = (
-        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"{{\\an5\\fs{size}\\pos({_kw_pos(kw, play_w, play_h)[0]},{cy})"
         f"\\1c{ORANGE}\\2c{WHITE}\\3c{DARK}\\4c&H000000&"
         f"{kar}"
         f"\\fscx30\\fscy30\\t(0,180,\\fscx108\\fscy108)"
@@ -237,20 +249,20 @@ def _event_grifo(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int)
     ela acompanha a largura exata do texto em qualquer tamanho de fonte.
     """
     dur_ms = int((kw.end - kw.start) * 1000)
-    cy = int(play_h * KW_Y_FRAC)
+    cx, cy = _kw_pos(kw, play_w, play_h)
     bar_h = max(6, int(size * 0.07))
     # barra (layer 20, atrás do texto): cresce como um grifo de caneta
     bar = (
         f"Dialogue: 20,{_fmt_time(kw.start + 0.12)},{_fmt_time(kw.end)},"
         f"Keyword,,0,0,0,,{{\\an5\\fs{size}"
-        f"\\pos({play_w // 2},{cy + int(size * 0.40)})"
+        f"\\pos({cx},{cy + int(size * 0.40)})"
         f"\\1c{ORANGE}\\3c{ORANGE}\\bord{bar_h}"
         f"\\fscx0\\fscy8"
         f"\\t(0,{min(420, dur_ms // 3)},\\fscx100)\\fad(0,150)}}"
         f"{word}{{\\r}}"
     )
     text = (
-        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"{{\\an5\\fs{size}\\pos({cx},{cy})"
         f"\\1c{WHITE}\\3c{DARK}\\4c&H000000&"
         f"\\fscx40\\fscy40\\t(0,160,\\fscx104\\fscy104)"
         f"\\t(160,260,\\fscx100\\fscy100)"
@@ -274,9 +286,9 @@ def _event_tremor(kw: KeywordPop, word: str, size: int, play_w: int, play_h: int
         shake += f"\\t({t},{end},\\frz{signs[i % len(signs)]}\\fscy{102 if i % 2 else 98})"
         t += step
         i += 1
-    cy = int(play_h * KW_Y_FRAC)
+    cx, cy = _kw_pos(kw, play_w, play_h)
     tags = (
-        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"{{\\an5\\fs{size}\\pos({cx},{cy})"
         f"\\1c{WHITE}\\3c{DARK}\\4c&H000000&"
         f"\\fscx20\\fscy20\\t(0,200,\\fscx112\\fscy112)"
         f"\\t(200,300,\\fscx100\\fscy100){shake}"
@@ -291,10 +303,10 @@ def _event_impacto(kw: KeywordPop, word: str, size: int, play_w: int, play_h: in
     O slam vem de 190% (momentâneo, ~140ms) e assenta em ≤106% — o
     auto-ajuste garante que o tamanho assentado nunca saia do frame.
     """
-    cy = int(play_h * KW_Y_FRAC)
+    cx, cy = _kw_pos(kw, play_w, play_h)
     dur_ms = int((kw.end - kw.start) * 1000)
     tags = (
-        f"{{\\an5\\fs{size}\\pos({play_w // 2},{cy})"
+        f"{{\\an5\\fs{size}\\pos({cx},{cy})"
         f"\\1c{RED}\\3c{WHITE}\\4c&H000000&"
         f"\\fscx190\\fscy190\\blur6"
         f"\\t(0,140,\\fscx96\\fscy96\\blur0)"
@@ -323,7 +335,8 @@ def write_keywords_ass(
 ) -> Path:
     """Camada ASS com os pops das palavras-chave (efeitos variados)."""
     vertical = play_h >= play_w
-    base_size = int(play_w * (0.17 if vertical else 0.11))
+    # tamanho padrão mais modesto (o usuário pode aumentar no painel)
+    base_size = int(play_w * (0.13 if vertical else 0.085))
     # margem para contorno + sombra dos dois lados (nunca estourar)
     margin = max(6, base_size // 14) + 6 + 22
 
@@ -343,6 +356,8 @@ def write_keywords_ass(
         if not word or kw.end <= kw.start:
             continue
         style = kw.style if kw.style in _EVENTS else "travessia"
+        # tamanho escolhido pelo usuário (limitado a ±60% do padrão)
+        user_base = int(base_size * min(1.6, max(0.4, kw.scale or 1.0)))
         # auto-ajuste com a fonte real: crescimento pós-entrada do efeito
         grow = GROW.get(style, 1.10)
         if style == "travessia":
@@ -350,7 +365,7 @@ def write_keywords_ass(
             usable_w = play_w * 0.96 - margin
         else:
             usable_w = play_w - margin * 2
-        size = _fit_size(word, base_size, usable_w, grow)
+        size = _fit_size(word, user_base, usable_w, grow)
         if style == "grifo":
             lines.append(_event_grifo(kw, word, size, play_w, play_h))
         else:

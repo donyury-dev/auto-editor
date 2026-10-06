@@ -180,6 +180,9 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
             "end": round(k.end, 3),
             "text": k.word,
             "style": k.style,
+            "x": round(k.x, 4),
+            "y": round(k.y, 4),
+            "scale": round(k.scale, 3),
         }
         for i, k in enumerate(ctx.edit_plan.keywords)
     ]
@@ -319,7 +322,7 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         if float(o.get("end", 0)) > float(o.get("start", 0))
     ]
 
-    # palavras-chave editadas pelo usuário (texto/timing/efeito)
+    # palavras-chave editadas pelo usuário (texto/timing/efeito/posição)
     from core.edit_plan import KeywordPop
 
     ctx.edit_plan.keywords = [
@@ -328,6 +331,9 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
             end=float(k["end"]),
             word=str(k.get("text", "")).strip(),
             style=str(k.get("style", "") or ""),
+            x=float(k.get("x", 0.5)),
+            y=float(k.get("y", -1.0)),
+            scale=float(k.get("scale", 1.0)),
         )
         for k in tl.get("keywords", [])
         if float(k.get("end", 0)) > float(k.get("start", 0))

@@ -462,22 +462,22 @@ button.ghost:hover {
 
 .keyword-overlay {
   position: absolute;
-  left: 5%;
-  right: 5%;
-  top: 14%;
+  left: 50%;
+  top: 20%;
   display: none;
   align-items: center;
   justify-content: center;
   text-align: center;
   z-index: 7;
   font-family: "Anton", sans-serif;
-  font-size: 17cqh;
+  font-size: 13cqh;
   letter-spacing: 0.02em;
   color: #ff6b2b;
   -webkit-text-stroke: 0.9cqh #ffffff;
   paint-order: stroke fill;
   filter: drop-shadow(0 0.8cqh 1.4cqh rgba(0, 0, 0, 0.55));
   pointer-events: none;
+  user-select: none;
   white-space: nowrap;
 }
 

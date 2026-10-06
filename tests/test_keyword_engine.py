@@ -28,7 +28,7 @@ def test_pick_keywords_respeita_gap_minimo():
     words = [
         W("tecnologia", 0.5, 1.2),
         W("transformação", 2.0, 3.0),  # < 4s do anterior
-        W("produtividade", 9.0, 10.0),
+        W("responsabilidades", 9.0, 10.0),
     ]
     kws = pick_keywords(words, duration=20.0)
     assert len(kws) == 2
@@ -49,7 +49,7 @@ def test_pick_keywords_vazio():
 
 
 def test_pick_keywords_ordena_por_tempo():
-    words = [W("produtividade", 8.0, 9.0), W("tecnologia", 1.0, 2.0)]
+    words = [W("responsabilidades", 8.0, 9.0), W("tecnologia", 1.0, 2.0)]
     kws = pick_keywords(words, duration=20.0)
     assert [k.start for k in kws] == sorted(k.start for k in kws)
 
@@ -58,7 +58,7 @@ def test_pick_keywords_ciclo_de_efeitos():
     words = [
         W("tecnologia", 0.5, 1.2),
         W("transformar", 5.5, 6.2),
-        W("produtividade", 10.5, 11.4),
+        W("responsabilidades", 10.5, 11.4),
         W("realidade", 15.5, 16.2),
         W("objetivos", 20.5, 21.2),
     ]
@@ -111,14 +111,14 @@ def test_write_keywords_ass_estilos_variados(tmp_path):
 def test_write_keywords_ass_auto_ajuste_palavra_longa(tmp_path):
     curta = KeywordPop(start=1.0, end=2.5, word="casa", style="travessia")
     longa = KeywordPop(
-        start=5.0, end=6.5, word="transformar", style="travessia"
+        start=5.0, end=6.5, word="responsabilidades", style="travessia"
     )
     out = write_keywords_ass([curta, longa], tmp_path / "kw.ass", 1080, 1920)
     text = out.read_text(encoding="utf-8")
     import re
 
     longa_line = next(
-        line for line in text.splitlines() if "TRANSFORMAR" in line
+        line for line in text.splitlines() if "RESPONSABILIDADES" in line
     )
     curta_line = next(line for line in text.splitlines() if "CASA" in line)
     fs_longa = int(re.search(r"\\fs(\d+)", longa_line).group(1))
@@ -128,8 +128,52 @@ def test_write_keywords_ass_auto_ajuste_palavra_longa(tmp_path):
     # respeitando a folga real da travessia (anda ±2% da largura)
     from core.keyword_engine import _measure_text
 
-    max_w = _measure_text("TRANSFORMAR", fs_longa) * 1.10
+    max_w = _measure_text("RESPONSABILIDADES", fs_longa) * 1.10
     assert max_w <= 1080 * 0.96 - 40
+
+
+def test_write_keywords_ass_posicao_e_tamanho_customizados(tmp_path):
+    import re
+
+    kws = [
+        KeywordPop(
+            start=1.0, end=2.5, word="CASA", style="impacto",
+            x=0.3, y=0.55, scale=0.8,
+        )
+    ]
+    out = tmp_path / "kw.ass"
+    write_keywords_ass(kws, out, 1080, 1920)
+    text = out.read_text(encoding="utf-8")
+    # posição customizada: 30% da largura, 55% da altura
+    assert f"\\pos({int(1080 * 0.3)},{int(1920 * 0.55)})" in text
+    # a fonte usada respeita a escala do usuário (impacto assenta ≤106%)
+    from core.keyword_engine import _measure_text
+
+    base = int(1080 * 0.13)
+    used = int(
+        re.search(
+            r"\\fs(\d+)",
+            next(
+                l
+                for l in text.splitlines()
+                if "CASA" in l and "\\pos" in l
+            ),
+        ).group(1)
+    )
+    assert used <= base * 0.8 * 1.06 + 2
+
+
+def test_edit_plan_keywords_roundtrip_com_posicao():
+    plan = EditPlan(
+        keywords=[
+            KeywordPop(start=1.0, end=2.5, word="casa", x=0.42, y=0.6, scale=1.25)
+        ],
+        duration=10.0,
+    )
+    restored = EditPlan.from_dict(plan.to_dict())
+    assert restored.keywords[0].x == 0.42
+    assert restored.keywords[0].y == 0.6
+    assert restored.keywords[0].scale == 1.25
 
 
 def test_write_keywords_ass_vazio(tmp_path):

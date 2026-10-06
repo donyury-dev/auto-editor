@@ -145,6 +145,44 @@ export default function Properties({
           onChange={(v) => onChange(patchKeywordTime(timeline, kw.id, { start: v }))} />
         <Num label="Fim (s)" value={kw.end} min={0} max={timeline.video.duration}
           onChange={(v) => onChange(patchKeywordTime(timeline, kw.id, { end: v }))} />
+        <h3>Tamanho e posição</h3>
+        <p className="hint">Arraste a palavra direto na prévia para posicionar.</p>
+        <label>
+          Tamanho: {Math.round((kw.scale ?? 1) * 100)}%
+          <input
+            type="range"
+            min={40}
+            max={160}
+            value={Math.round((kw.scale ?? 1) * 100)}
+            onChange={(e) =>
+              onChange(patchKeywordProps(timeline, kw.id, { scale: Number(e.target.value) / 100 }))
+            }
+          />
+        </label>
+        <label>
+          Posição horizontal: {Math.round((kw.x ?? 0.5) * 100)}%
+          <input
+            type="range"
+            min={6}
+            max={94}
+            value={Math.round((kw.x ?? 0.5) * 100)}
+            onChange={(e) =>
+              onChange(patchKeywordProps(timeline, kw.id, { x: Number(e.target.value) / 100 }))
+            }
+          />
+        </label>
+        <label>
+          Posição vertical: {Math.round(((kw.y !== undefined && kw.y >= 0 ? kw.y : 0.2)) * 100)}%
+          <input
+            type="range"
+            min={4}
+            max={92}
+            value={Math.round((kw.y !== undefined && kw.y >= 0 ? kw.y : 0.2) * 100)}
+            onChange={(e) =>
+              onChange(patchKeywordProps(timeline, kw.id, { y: Number(e.target.value) / 100 }))
+            }
+          />
+        </label>
         <button className="danger" onClick={onDelete}>Remover palavra-chave</button>
       </aside>
     );
@@ -564,6 +602,17 @@ function patchKeywordStyle(t: Timeline, id: string, style: string): Timeline {
   return {
     ...t,
     keywords: t.keywords.map((k) => (k.id === id ? { ...k, style } : k)),
+  };
+}
+
+function patchKeywordProps(
+  t: Timeline,
+  id: string,
+  patch: { x?: number; y?: number; scale?: number }
+): Timeline {
+  return {
+    ...t,
+    keywords: t.keywords.map((k) => (k.id === id ? { ...k, ...patch } : k)),
   };
 }
 
