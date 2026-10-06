@@ -39,6 +39,11 @@ export default function Player({
     origY: number;
   } | null>(null);
   const lastFxRef = useRef("");
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const layoutVidRef = useRef<HTMLVideoElement>(null);
+  const layoutTitleRef = useRef<HTMLDivElement>(null);
+  const layoutStepsRef = useRef<HTMLDivElement>(null);
+  const layoutShownRef = useRef<string | null>(null);
 
   const preset =
     captionStyles.find((s) => s.id === (timeline.captionStyle || "")) ||
@@ -250,6 +255,63 @@ export default function Player({
         kwEl.style.display = "none";
       }
     }
+    // cena de layout "aula": fundo escuro + card do apresentador + painel
+    const layEl = layoutRef.current;
+    if (layEl) {
+      const sc = (timeline.layouts || []).find(
+        (l) => t >= l.start - 0.02 && t <= l.end + 0.02
+      );
+      if (sc) {
+        if (layoutShownRef.current !== sc.id) {
+          layoutShownRef.current = sc.id;
+          layEl.className = `layout-overlay side-${sc.side}`;
+          if (layoutTitleRef.current)
+            layoutTitleRef.current.textContent = sc.title;
+          if (layoutStepsRef.current)
+            layoutStepsRef.current.innerHTML = (sc.steps || [])
+              .map((s) => `<div class="layout-step">${escapeHtml(s)}</div>`)
+              .join("");
+          const lv = layoutVidRef.current;
+          if (lv && lv.src !== videoUrl) lv.src = videoUrl;
+        }
+        // animação de entrada (0.5s): painel desliza + fade
+        const p = Math.min(1, (t - sc.start) / 0.5);
+        layEl.style.opacity = String(Math.min(1, p * 2));
+        const panel = layEl.querySelector(
+          ".layout-panel"
+        ) as HTMLElement | null;
+        if (panel) {
+          const off = (1 - p) * 10;
+          panel.style.transform = `translateX(${sc.side === "right" ? "" : "-"}${off.toFixed(2)}%)`;
+        }
+        // vídeo dentro do card sincronizado com o principal
+        const lv = layoutVidRef.current;
+        const v = videoRef.current;
+        if (lv && v) {
+          if (Math.abs(lv.currentTime - v.currentTime) > 0.25)
+            lv.currentTime = v.currentTime;
+          if (v.paused !== lv.paused) {
+            if (v.paused) lv.pause();
+            else lv.play().catch(() => {});
+          }
+        }
+        // cartões aparecem progressivamente conforme a fala avança
+        const frac =
+          (t - sc.start) / Math.max(0.5, sc.end - sc.start);
+        layEl
+          .querySelectorAll<HTMLElement>(".layout-step")
+          .forEach((el, i) => {
+            const show =
+              frac > (i + 0.5) / ((sc.steps?.length || 1) + 0.5);
+            el.style.opacity = show ? "1" : "0.18";
+          });
+        layEl.style.display = "block";
+      } else {
+        layoutShownRef.current = null;
+        layEl.style.display = "none";
+        layoutVidRef.current?.pause();
+      }
+    }
   }
 
   function handleKwPointerDown(e: React.PointerEvent) {
@@ -297,6 +359,16 @@ export default function Player({
         playsInline
       />
       <div className="overlays" ref={overlayRef}>
+        <div className="layout-overlay" ref={layoutRef} style={{ display: "none" }}>
+          <div className="layout-bg" />
+          <div className="layout-card">
+            <video ref={layoutVidRef} muted playsInline />
+          </div>
+          <div className="layout-panel">
+            <div className="layout-panel-title" ref={layoutTitleRef}></div>
+            <div className="layout-steps" ref={layoutStepsRef}></div>
+          </div>
+        </div>
         <div className="fx-overlay" ref={fxRef} />
         <div
           className="keyword-overlay"

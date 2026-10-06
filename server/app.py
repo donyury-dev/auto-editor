@@ -107,6 +107,7 @@ class TimelineUpdate(BaseModel):
     captions: list[dict] = []
     callouts: list[dict] = []
     keywords: list[dict] = []
+    layouts: list[dict] = []
     music: dict = {}
     sfx: list[dict] = []
     caption_style: str = ""
@@ -186,6 +187,17 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
         }
         for i, k in enumerate(ctx.edit_plan.keywords)
     ]
+    layouts = [
+        {
+            "id": f"l{i + 1:04d}",
+            "start": round(l.start, 3),
+            "end": round(l.end, 3),
+            "side": l.side,
+            "title": l.title,
+            "steps": list(l.steps),
+        }
+        for i, l in enumerate(ctx.edit_plan.layouts)
+    ]
     info = None
     try:
         from core.video_processor import VideoProcessor
@@ -233,6 +245,7 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
         "captions": captions,
         "callouts": callouts,
         "keywords": keywords,
+        "layouts": layouts,
         "caption_style": settings.caption_style,
         "caption_scale": float(getattr(settings, "caption_scale", 1.0)),
         "music": {
@@ -338,6 +351,21 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         for k in tl.get("keywords", [])
         if float(k.get("end", 0)) > float(k.get("start", 0))
         and str(k.get("text", "")).strip()
+    ]
+
+    # cenas de layout editadas pelo usuário (timing/lado/título/passos)
+    from core.edit_plan import LayoutScene
+
+    ctx.edit_plan.layouts = [
+        LayoutScene(
+            start=float(l["start"]),
+            end=float(l["end"]),
+            side="right" if str(l.get("side", "left")) == "right" else "left",
+            title=str(l.get("title", "EXPLICAÇÃO") or "EXPLICAÇÃO"),
+            steps=[str(s) for s in (l.get("steps") or []) if str(s).strip()],
+        )
+        for l in tl.get("layouts", [])
+        if float(l.get("end", 0)) - float(l.get("start", 0)) >= 1.0
     ]
 
     # legendas editadas pelo usuário → reconstrói a transcrição usada no render
@@ -570,6 +598,7 @@ def put_timeline(project_id: str, update: TimelineUpdate) -> dict:
     tl["captions"] = update.captions
     tl["callouts"] = update.callouts
     tl["keywords"] = update.keywords
+    tl["layouts"] = update.layouts
     if update.music:
         tl["music"] = update.music
     tl["sfx"] = update.sfx

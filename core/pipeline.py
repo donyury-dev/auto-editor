@@ -231,6 +231,11 @@ class BuildEditPlanStep(PipelineStep):
             plan.keywords = pick_keywords(
                 ctx.transcript.words, duration=duration
             )
+        # cenas de layout "aula" (card + painel) — só na primeira análise
+        if not plan.layouts:
+            from core.layout_engine import pick_layouts
+
+            plan.layouts = pick_layouts(ctx.transcript.words, duration)
 
         ctx.edit_plan = plan
         plan.save(ctx.work_dir / "edit_plan.json")
@@ -851,6 +856,74 @@ class RenderStep(PipelineStep):
         )
 
 
+class ApplyLayoutsStep(PipelineStep):
+    """Queima as cenas de layout "aula" (card + painel) no vídeo final."""
+
+    name = "Layouts"
+    weight = 0.06
+
+    def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        assert ctx.edited_path is not None
+        layouts = list(ctx.edit_plan.layouts) if ctx.edit_plan else []
+        if not layouts:
+            progress(1.0, "sem cenas de layout")
+            return
+
+        # remapeia os tempos p/ linha pós-cortes; pula cena cortada
+        plan = ctx.edit_plan
+        final: list = []
+        for sc in layouts:
+            start = plan.remap_time(sc.start)
+            end = plan.remap_time(sc.end)
+            if end - start >= 1.5:
+                from core.edit_plan import LayoutScene
+
+                final.append(
+                    LayoutScene(
+                        start=start,
+                        end=end,
+                        side=sc.side,
+                        title=sc.title,
+                        steps=sc.steps,
+                        reason=sc.reason,
+                    )
+                )
+        if not final:
+            progress(1.0, "cenas de layout removidas pelos cortes")
+            return
+
+        progress(0.3, f"aplicando {len(final)} cena(s) de layout…")
+        out = ctx.work_dir / "layouts.mp4"
+        ctx.work_dir.mkdir(parents=True, exist_ok=True)
+        from core.ffmpeg_path import get_ffprobe, get_ffmpeg
+        from core.layout_engine import apply_layouts
+        from config.settings import FONTS_DIR
+
+        # dimensões do vídeo atual
+        import subprocess as sp
+
+        probe = sp.run(
+            [get_ffprobe(), "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "json",
+             str(ctx.edited_path)],
+            check=True, capture_output=True, text=True,
+        )
+        import json as _json
+
+        dims = _json.loads(probe.stdout)["streams"][0]
+        apply_layouts(
+            ctx.edited_path,
+            out,
+            final,
+            int(dims["width"]),
+            int(dims["height"]),
+            FONTS_DIR,
+            ffmpeg_bin=get_ffmpeg(),
+        )
+        ctx.edited_path = out
+        progress(1.0, f"{len(final)} cena(s) de layout aplicada(s)")
+
+
 class ExportStep(PipelineStep):
     name = "Exportação"
     weight = 0.05
@@ -990,6 +1063,7 @@ def build_render_pipeline() -> Pipeline:
             ApplyIllustrationsStep(),
             ApplyPackStep(),
             ApplyAudioStep(),
+            ApplyLayoutsStep(),
             BuildSubtitlesStep(),
             RenderStep(),
             ExportStep(),

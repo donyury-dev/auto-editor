@@ -12,7 +12,7 @@ interface TimelineProps {
 
 type DragState =
   | {
-      kind: "cut" | "callout" | "keyword" | "zoom" | "sfx";
+      kind: "cut" | "callout" | "keyword" | "zoom" | "sfx" | "layout";
       id: string;
       edge: "left" | "right" | "move";
       startX: number;
@@ -84,7 +84,7 @@ export default function Timeline({
 
   const startDrag = (
     e: React.PointerEvent,
-    kind: "cut" | "callout" | "keyword" | "zoom" | "sfx",
+    kind: "cut" | "callout" | "keyword" | "zoom" | "sfx" | "layout",
     id: string,
     edge: "left" | "right" | "move"
   ) => {
@@ -97,9 +97,11 @@ export default function Timeline({
           ? timeline.callouts.find((c) => c.id === id)
           : kind === "keyword"
             ? timeline.keywords.find((k) => k.id === id)
-            : kind === "zoom"
-              ? timeline.zooms.find((z) => z.id === id)
-              : timeline.sfx.find((s) => s.id === id);
+            : kind === "layout"
+              ? (timeline.layouts || []).find((l) => l.id === id)
+              : kind === "zoom"
+                ? timeline.zooms.find((z) => z.id === id)
+                : timeline.sfx.find((s) => s.id === id);
     if (!block) return;
     const orig = {
       start: "timestamp" in block ? block.timestamp : block.start,
@@ -164,6 +166,10 @@ export default function Timeline({
       } else if (d.kind === "keyword") {
         next.keywords = next.keywords.map((k) =>
           k.id === cur.id ? { ...k, start: round(cur.start), end: round(cur.end) } : k
+        );
+      } else if (d.kind === "layout") {
+        next.layouts = (next.layouts || []).map((l) =>
+          l.id === cur.id ? { ...l, start: round(cur.start), end: round(cur.end) } : l
         );
       } else if (d.kind === "zoom") {
         next.zooms = next.zooms.map((z) =>
@@ -333,6 +339,44 @@ export default function Timeline({
                 <div
                   className="handle right"
                   onPointerDown={(e) => startDrag(e, "keyword", k.id, "right")}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div
+          className="track layout-track"
+          style={{ height: 30 }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).dataset.block) return;
+            seekFromEvent(e);
+          }}
+        >
+          {(timeline.layouts || []).map((l) => {
+            const d = dragBlock(l.id);
+            const start = d ? d.start : l.start;
+            const end = d ? d.end : l.end;
+            return (
+              <div
+                key={l.id}
+                data-block="1"
+                className={`mini-block layoutb ${isSelected("layout", l.id) ? "selected" : ""}`}
+                style={{
+                  left: start * pxPerSec,
+                  width: Math.max(10, (end - start) * pxPerSec),
+                }}
+                title={`Cena: ${l.title} (lado ${l.side === "right" ? "direito" : "esquerdo"})`}
+                onPointerDown={(e) => startDrag(e, "layout", l.id, "move")}
+              >
+                <span className="mini-label">{l.title}</span>
+                <div
+                  className="handle left"
+                  onPointerDown={(e) => startDrag(e, "layout", l.id, "left")}
+                />
+                <div
+                  className="handle right"
+                  onPointerDown={(e) => startDrag(e, "layout", l.id, "right")}
                 />
               </div>
             );

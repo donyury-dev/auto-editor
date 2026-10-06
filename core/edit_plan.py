@@ -102,12 +102,59 @@ class KeywordPop:
 
 
 @dataclass
+class LayoutScene:
+    """Cena de layout "aula": apresentador em card + painel de conceito.
+
+    Durante `start..end` (linha do tempo ORIGINAL), o vídeo encolhe para
+    um card arredondado de um lado e um painel animado com o título do
+    conceito entra do outro, sobre fundo escuro com grade (estilo aula).
+
+    `side`: lado do card do apresentador ("left" ou "right").
+    `title`: título do painel (ex.: "EXPLICAÇÃO").
+    `steps`: textos dos cartões do painel, mostrados em sequência.
+    """
+
+    start: float
+    end: float
+    side: str = "left"  # lado do card do apresentador
+    title: str = "EXPLICAÇÃO"
+    steps: list[str] = field(default_factory=list)
+    reason: str = ""
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+    def to_dict(self) -> dict:
+        return {
+            "start": round(self.start, 3),
+            "end": round(self.end, 3),
+            "side": self.side,
+            "title": self.title,
+            "steps": list(self.steps),
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "LayoutScene":
+        return cls(
+            start=float(data["start"]),
+            end=float(data["end"]),
+            side=str(data.get("side", "left")) if data.get("side") else "left",
+            title=str(data.get("title", "EXPLICAÇÃO") or "EXPLICAÇÃO"),
+            steps=[str(s) for s in data.get("steps", []) if str(s).strip()],
+            reason=str(data.get("reason", "")),
+        )
+
+
+@dataclass
 class EditPlan:
     """Plano completo de edição sugerido (sujeito a revisão do usuário)."""
 
     cuts: list[Cut] = field(default_factory=list)
     zooms: list[ZoomEffect] = field(default_factory=list)
     keywords: list[KeywordPop] = field(default_factory=list)
+    layouts: list[LayoutScene] = field(default_factory=list)
     transition_type: str = "fade"  # aplicado nos pontos de corte
     transition_duration: float = 0.3
     source: str = "heurística local"  # quem gerou o plano
@@ -139,6 +186,7 @@ class EditPlan:
                 for z in self.zooms
             ],
             "keywords": [k.to_dict() for k in self.keywords],
+            "layouts": [l.to_dict() for l in self.layouts],
             "transition_type": self.transition_type,
             "transition_duration": self.transition_duration,
             "source": self.source,
@@ -172,6 +220,10 @@ class EditPlan:
             keywords=[
                 KeywordPop.from_dict(k)
                 for k in data.get("keywords", [])
+            ],
+            layouts=[
+                LayoutScene.from_dict(l)
+                for l in data.get("layouts", [])
             ],
             transition_type=str(data.get("transition_type", "fade")),
             transition_duration=float(data.get("transition_duration", 0.3)),

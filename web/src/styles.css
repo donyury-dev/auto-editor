@@ -460,6 +460,75 @@ button.ghost:hover {
   to { transform: translateY(-101%); }
 }
 
+/* ---------- cena de layout "aula" ---------- */
+.layout-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.layout-bg {
+  position: absolute;
+  inset: 0;
+  background-color: #12151d;
+  background-image:
+    linear-gradient(#232837 1.5px, transparent 1.5px),
+    linear-gradient(90deg, #232837 1.5px, transparent 1.5px);
+  background-size: 12.5cqw 12.5cqw;
+}
+.layout-card {
+  position: absolute;
+  top: 6%;
+  bottom: 6%;
+  width: 44%;
+  overflow: hidden;
+  border: 0.45cqh solid #ff6b2b;
+  border-radius: 3cqh;
+  box-shadow: 0 0 4cqh rgba(255, 107, 43, 0.25);
+}
+.layout-card video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.side-left .layout-card { left: 3%; }
+.side-right .layout-card { right: 3%; }
+.layout-panel {
+  position: absolute;
+  top: 18%;
+  width: 44%;
+  height: 52%;
+  background: rgba(26, 31, 43, 0.94);
+  border: 0.3cqh solid #ff6b2b;
+  border-radius: 2.4cqh;
+  padding: 3cqh 2.4cqw;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2.4cqh;
+}
+.side-left .layout-panel { right: 3%; }
+.side-right .layout-panel { left: 3%; }
+.layout-panel-title {
+  font-family: "Anton", sans-serif;
+  font-size: 5cqh;
+  color: #ffffff;
+  letter-spacing: 0.04em;
+  border-bottom: 0.25cqh solid #ff6b2b;
+  padding-bottom: 1.6cqh;
+}
+.layout-step {
+  font-family: "Poppins", sans-serif;
+  font-weight: 600;
+  font-size: 3.4cqh;
+  color: #ffffff;
+  background: rgba(255, 107, 43, 0.16);
+  border: 0.2cqh solid rgba(255, 107, 43, 0.6);
+  border-radius: 1.6cqh;
+  padding: 1.8cqh 2cqw;
+  transition: opacity 0.3s;
+}
+
 .keyword-overlay {
   position: absolute;
   left: 50%;
@@ -691,6 +760,13 @@ button.ghost:hover {
 }
 .mini-block.keyword .mini-label {
   color: #ffb08a;
+}
+.mini-block.layoutb {
+  background: #2bd4b533;
+  border: 1px solid #2bd4b5;
+}
+.mini-block.layoutb .mini-label {
+  color: #8af0de;
 }
 .mini-block.music.empty {
   background: transparent;

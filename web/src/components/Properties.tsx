@@ -188,6 +188,54 @@ export default function Properties({
     );
   }
 
+  if (selection.kind === "layout") {
+    const l = (timeline.layouts || []).find((x) => x.id === selection.id);
+    if (!l) return null;
+    return (
+      <aside className="properties">
+        <h3>Cena (apresentador + painel)</h3>
+        <Num label="Início (s)" value={l.start} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchLayout(timeline, l.id, { start: v }))} />
+        <Num label="Fim (s)" value={l.end} min={0} max={timeline.video.duration}
+          onChange={(v) => onChange(patchLayout(timeline, l.id, { end: v }))} />
+        <label>
+          Lado do seu vídeo (card)
+          <select
+            value={l.side}
+            onChange={(e) => onChange(patchLayout(timeline, l.id, { side: e.target.value }))}
+          >
+            <option value="left">Esquerda</option>
+            <option value="right">Direita</option>
+          </select>
+        </label>
+        <label>
+          Título do painel
+          <input
+            value={l.title}
+            maxLength={30}
+            onChange={(e) => onChange(patchLayout(timeline, l.id, { title: e.target.value }))}
+          />
+        </label>
+        <label>
+          Cartões do painel (um por linha)
+          <textarea
+            rows={4}
+            value={(l.steps || []).join("\n")}
+            placeholder={"Deixe vazio para painel só com o título"}
+            onChange={(e) =>
+              onChange(
+                patchLayout(timeline, l.id, {
+                  steps: e.target.value.split("\n").filter((s) => s.trim()),
+                })
+              )
+            }
+          />
+        </label>
+        <button className="danger" onClick={onDelete}>Remover cena</button>
+      </aside>
+    );
+  }
+
   if (selection.kind === "zoom") {
     const z = timeline.zooms.find((x) => x.id === selection.id);
     if (!z) return null;
@@ -613,6 +661,23 @@ function patchKeywordProps(
   return {
     ...t,
     keywords: t.keywords.map((k) => (k.id === id ? { ...k, ...patch } : k)),
+  };
+}
+
+function patchLayout(
+  t: Timeline,
+  id: string,
+  patch: Partial<{
+    start: number;
+    end: number;
+    side: string;
+    title: string;
+    steps: string[];
+  }>
+): Timeline {
+  return {
+    ...t,
+    layouts: (t.layouts || []).map((l) => (l.id === id ? { ...l, ...patch } : l)),
   };
 }
 

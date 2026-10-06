@@ -248,8 +248,36 @@ export default function App() {
         ...timeline,
         sfx: timeline.sfx.filter((s) => s.id !== selection.id),
       });
+    } else if (selection.kind === "layout") {
+      commit({
+        ...timeline,
+        layouts: (timeline.layouts || []).filter((l) => l.id !== selection.id),
+      });
     }
     setSelection(null);
+  };
+
+  const addLayoutHere = () => {
+    if (!timeline || !videoRef.current) return;
+    const t = videoRef.current.currentTime;
+    const end = Math.min(t + 5, timeline.video.duration);
+    const id = `l${Date.now().toString(36)}`;
+    const n = (timeline.layouts || []).length;
+    commit({
+      ...timeline,
+      layouts: [
+        ...(timeline.layouts || []),
+        {
+          id,
+          start: t,
+          end,
+          side: n % 2 === 0 ? "left" : "right",
+          title: "EXPLICAÇÃO",
+          steps: [],
+        },
+      ],
+    });
+    setSelection({ kind: "layout", id });
   };
 
   const pickMusic = (item: LibraryItem) => {
@@ -442,6 +470,7 @@ export default function App() {
             <button onClick={addCutHere}>+ Corte aqui</button>
             <button onClick={addCalloutHere}>+ Call-out aqui</button>
             <button onClick={addKeywordHere}>+ Palavra-chave aqui</button>
+            <button onClick={addLayoutHere}>+ Cena aqui</button>
             {selection && (
               <button className="danger" onClick={deleteSelection}>
                 Excluir seleção

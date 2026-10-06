@@ -45,6 +45,15 @@ export interface KeywordBlock {
   scale?: number; // multiplicador de tamanho (1 = padrão)
 }
 
+export interface LayoutBlock {
+  id: string;
+  start: number;
+  end: number;
+  side: string; // "left" | "right" — lado do card do apresentador
+  title: string; // título do painel
+  steps: string[]; // cartões do painel
+}
+
 export interface SfxBlock {
   id: string;
   kind: string;
@@ -65,6 +74,7 @@ export interface Timeline {
   captions: CaptionChunk[];
   callouts: CalloutBlock[];
   keywords: KeywordBlock[];
+  layouts?: LayoutBlock[];
   music: { path: string | null; label: string; volume: number };
   sfx: SfxBlock[];
   captionStyle?: string;
@@ -99,6 +109,7 @@ export type Selection =
   | { kind: "caption"; id: string }
   | { kind: "callout"; id: string }
   | { kind: "keyword"; id: string }
+  | { kind: "layout"; id: string }
   | { kind: "zoom"; id: string }
   | { kind: "sfx"; id: string }
   | { kind: "music" }

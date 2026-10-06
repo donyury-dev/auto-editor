@@ -1,0 +1,297 @@
+"""Cenas de layout "aula": apresentador em card + painel de conceito.
+
+Detecta momentos de explicação/definição na transcrição (heurística,
+revisável pelo usuário) e renderiza o layout no vídeo final via FFmpeg:
+o apresentador encolhe para um card de um lado e um painel com o título
+e os cartões do conceito ocupa o outro, sobre fundo escuro com grade.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass
+
+from core.edit_plan import LayoutScene
+
+logger = logging.getLogger(__name__)
+
+# gatilhos de fala que costumam introduzir uma explicação/definição
+_TRIGGERS = [
+    "explicação",
+    "explicando",
+    "significa",
+    "quer dizer",
+    "por exemplo",
+    "na prática",
+    "resumindo",
+    "basicamente",
+    "ou seja",
+    "importante",
+    "entenda",
+    "conceito",
+    "passo",
+    "primeiro",
+    "como funciona",
+    "é isso que",
+    "funciona assim",
+]
+
+MIN_LAYOUT_S = 4.0  # cena curta demais não dá tempo de ler o painel
+GAP_S = 8.0  # distância mínima entre cenas
+MAX_LAYOUTS = 3  # teto por vídeo (não virar template)
+
+# ---------------------------------------------------------------- design
+BG = "0x12151d"  # fundo escuro
+GRID = "0x232837"  # linhas da grade
+ACCENT = "0xff6b2b"  # laranja da marca
+PANEL_BG = "0x1a1f2b"  # painel
+WHITE = "0xFFFFFF"
+
+
+@dataclass
+class _Candidate:
+    start: float
+    end: float
+    score: int
+    trigger_idx: int
+
+
+def _sentence_bounds(words: list, idx: int, duration: float) -> tuple[float, float]:
+    """Limites da frase ao redor da palavra idx (pausa > 0.6s = fronteira)."""
+    start = words[idx].start
+    end = words[idx].end
+    j = idx - 1
+    while j >= 0 and words[j + 1].start - words[j].end < 0.6:
+        start = words[j].start
+        j -= 1
+    j = idx + 1
+    while j < len(words) and words[j].start - words[j - 1].end < 0.6:
+        end = words[j].end
+        j += 1
+    return max(0.0, start), min(duration, end)
+
+
+def _normalize(text: str) -> str:
+    return re.sub(r"[^\wÀ-ÿ ]", " ", text.lower())
+
+
+def pick_layouts(words: list, duration: float) -> list[LayoutScene]:
+    """Escolhe até MAX_LAYOUTS momentos de explicação p/ cena de layout."""
+    if not words or duration < MIN_LAYOUT_S + 2:
+        return []
+    norm = [_normalize(w.text) for w in words]
+    candidates: list[_Candidate] = []
+    for i, wtext in enumerate(norm):
+        hit = next((t for t in _TRIGGERS if t in wtext or t in " ".join(norm[max(0, i - 2): i + 1])), None)
+        if hit is None:
+            continue
+        start, end = _sentence_bounds(words, i, duration)
+        # cena precisa ter folga: estende até cobrir MIN_LAYOUT_S
+        if end - start < MIN_LAYOUT_S:
+            end = min(duration, start + MIN_LAYOUT_S + 1.0)
+        if end - start < MIN_LAYOUT_S:
+            continue
+        candidates.append(_Candidate(start, end, score=len(hit) + len(words) and i, trigger_idx=i))
+
+    # melhores primeiro (gatilho mais "conceitual" = frase mais longa)
+    candidates.sort(key=lambda c: (-(c.end - c.start)))
+    chosen: list[_Candidate] = []
+    for c in candidates:
+        if len(chosen) >= MAX_LAYOUTS:
+            break
+        if any(c.start < o.end + GAP_S and o.start < c.end + GAP_S for o in chosen):
+            continue
+        chosen.append(c)
+    chosen.sort(key=lambda c: c.start)
+
+    layouts: list[LayoutScene] = []
+    for n, c in enumerate(chosen):
+        side = "left" if n % 2 == 0 else "right"
+        layouts.append(
+            LayoutScene(
+                start=c.start,
+                end=c.end,
+                side=side,
+                title="EXPLICAÇÃO",
+                steps=[],
+                reason="trecho explicativo detectado na fala",
+            )
+        )
+    return layouts
+
+
+# ----------------------------------------------------------------------
+# Render via FFmpeg + PIL
+# ----------------------------------------------------------------------
+
+def _render_scene_pngs(
+    sc: LayoutScene,
+    play_w: int,
+    play_h: int,
+    fonts_dir,
+    out_base: str,
+) -> tuple[int, int, int]:
+    """Desenha a cena (fundo, grade, painel, textos) em PNGs via PIL.
+
+    Devolve (card_x, card_w, gap). `out_base` recebe dois arquivos:
+    `{out_base}_bg.png` (opaco, com buraco transparente no card) e
+    `{out_base}_frame.png` (só a borda arredondada do card).
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    gap = int(play_w * 0.03)
+    card_w = int(play_w * 0.44)
+    card_x = (play_w - card_w - gap) if sc.side == "right" else gap
+    panel_x = gap if sc.side == "right" else card_w + gap * 2
+    panel_w = play_w - card_w - gap * 3
+
+    bg_rgb = (18, 21, 29)
+    grid_rgb = (35, 40, 55)
+    accent = (255, 107, 43)
+    panel_rgb = (26, 31, 43)
+
+    base = Image.new("RGBA", (play_w, play_h), bg_rgb + (255,))
+    d = ImageDraw.Draw(base)
+    step = max(40, play_w // 12)
+    for x in range(0, play_w, step):
+        d.line([(x, 0), (x, play_h)], fill=grid_rgb, width=2)
+    for y in range(0, play_h, step):
+        d.line([(0, y), (play_w, y)], fill=grid_rgb, width=2)
+
+    # painel
+    panel_y = int(play_h * 0.18)
+    panel_h = int(play_h * 0.5)
+    d.rounded_rectangle(
+        [panel_x, panel_y, panel_x + panel_w, panel_y + panel_h],
+        radius=int(play_w * 0.02),
+        fill=panel_rgb + (240,),
+        outline=accent,
+        width=max(3, play_w // 300),
+    )
+    # título
+    title_size = int(play_w * 0.045)
+    f_title = ImageFont.truetype(str(fonts_dir / "Anton-Regular.ttf"), title_size)
+    d.text(
+        (panel_x + gap, panel_y + int(play_h * 0.025)),
+        sc.title.upper(),
+        font=f_title,
+        fill=(255, 255, 255),
+    )
+    d.line(
+        [(panel_x + gap, panel_y + int(play_h * 0.09)),
+         (panel_x + panel_w - gap, panel_y + int(play_h * 0.09))],
+        fill=accent, width=max(2, play_w // 400),
+    )
+    # cartões dos passos (até 3)
+    step_size = int(play_w * 0.036)
+    try:
+        f_step = ImageFont.truetype(
+            str(fonts_dir / "Poppins-ExtraBold.ttf"), step_size
+        )
+    except OSError:
+        f_step = ImageFont.truetype(str(fonts_dir / "Anton-Regular.ttf"), step_size)
+    for j, s in enumerate(sc.steps[:3]):
+        cy = panel_y + int(play_h * 0.12) + j * int(play_h * 0.115)
+        d.rounded_rectangle(
+            [panel_x + gap // 2, cy, panel_x + panel_w - gap // 2,
+             cy + int(play_h * 0.095)],
+            radius=int(play_w * 0.015),
+            fill=accent + (40,),
+            outline=accent,
+            width=max(2, play_w // 450),
+        )
+        d.text(
+            (panel_x + gap, cy + int(play_h * 0.022)),
+            s, font=f_step, fill=(255, 255, 255),
+        )
+
+    # buraco transparente onde entra o vídeo do card
+    hole = int(max(4, play_w // 240))
+    d.rectangle([card_x + hole, 0, card_x + card_w - hole, play_h],
+                fill=(0, 0, 0, 0))
+
+    # borda arredondada do card (segunda camada, por cima do vídeo)
+    frame = Image.new("RGBA", (play_w, play_h), (0, 0, 0, 0))
+    df = ImageDraw.Draw(frame)
+    df.rounded_rectangle(
+        [card_x, 0, card_x + card_w, play_h - 1],
+        radius=int(play_w * 0.03),
+        outline=accent,
+        width=max(4, play_w // 240),
+    )
+
+    base.save(f"{out_base}_bg.png")
+    frame.save(f"{out_base}_frame.png")
+    return card_x, card_w, gap
+
+
+def apply_layouts(
+    video_in,
+    video_out,
+    layouts: list[LayoutScene],
+    play_w: int,
+    play_h: int,
+    fonts_dir,
+    ffmpeg_bin: str = "ffmpeg",
+) -> None:
+    """Queima as cenas de layout no vídeo final (FFmpeg + overlays PNG).
+
+    O vídeo de entrada é o arquivo já renderizado (tempos pós-cortes) —
+    os `start/end` das cenas DEVEM vir remapeados antes desta chamada.
+    Usa apenas crop/scale/overlay (o ffmpeg empacotado não tem drawtext).
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    if not layouts:
+        shutil.copyfile(video_in, video_out)
+        return
+
+    tmp = Path(video_out).parent
+    chains: list[str] = []
+    inputs: list[str] = ["-i", str(video_in)]
+    n = len(layouts)
+
+    # divide o vídeo original: um stream por cena (p/ recorte do card)
+    # + um que segue a cadeia principal dos overlays
+    split_out = "".join(f"[src{i}]" for i in range(n)) + "[main0]"
+    chains.append(f"[0:v]split={n + 1}{split_out}")
+
+    for i, sc in enumerate(layouts):
+        card_x, card_w, _ = _render_scene_pngs(
+            sc, play_w, play_h, Path(fonts_dir), str(tmp / f"lay{i}")
+        )
+        base_idx = len(inputs) // 2
+        inputs += ["-i", f"{tmp / ('lay%d_bg.png' % i)}"]
+        frame_idx = len(inputs) // 2
+        inputs += ["-i", f"{tmp / ('lay%d_frame.png' % i)}"]
+
+        en = f"between(t,{sc.start:.3f},{sc.end:.3f})"
+        # 1) fundo/grade/painel cobrem o frame (com buraco no card)
+        chains.append(
+            f"[main{i}][{base_idx}:v]overlay=0:0:enable='{en}'[mb{i}]"
+        )
+        # 2) vídeo original recortado na proporção do card, no buraco
+        chains.append(
+            f"[src{i}]crop=w={card_w}:h={play_h}:x=(iw-{card_w})/2:y=0[cv{i}]"
+        )
+        chains.append(
+            f"[mb{i}][cv{i}]overlay={card_x}:0:enable='{en}'[mc{i}]"
+        )
+        # 3) borda arredondada do card por cima
+        chains.append(
+            f"[mc{i}][{frame_idx}:v]overlay=0:0:enable='{en}'[main{i + 1}]"
+        )
+
+    cmd = [
+        ffmpeg_bin, "-y", "-loglevel", "error", *inputs,
+        "-filter_complex", ";".join(chains) + f";[main{n}]null[out]",
+        "-map", "[out]", "-map", "0:a?", "-c:v", "libx264", "-preset", "fast",
+        "-crf", "20", "-c:a", "copy", str(video_out),
+    ]
+    logger.info("Aplicando %d cena(s) de layout", len(layouts))
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"FFmpeg (layouts) falhou: {proc.stderr[-800:]}")
