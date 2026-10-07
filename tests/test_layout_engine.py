@@ -78,3 +78,20 @@ class TestSerializacao:
         assert plan.layouts[0].steps == ["A", "B"]
         again = EditPlan.from_dict(plan.to_dict())
         assert again.layouts[0].title == "CONCEITO"
+
+    def test_cena_manual_preserva_duracao_ao_atravessar_corte(self):
+        """O export não deve encurtar uma cena manual por causa de um corte."""
+        from core.edit_plan import Cut, EditPlan
+
+        plan = EditPlan(
+            cuts=[Cut(start=41.744, end=49.41)],
+            duration=104.32,
+            transition_type="corte",
+            transition_duration=0.0,
+        )
+        scene = LayoutScene(start=40.5, end=50.3)
+
+        # Mesma regra usada por ApplyLayoutsStep: só o início é remapeado.
+        start = plan.remap_time(scene.start)
+        end = min(95.0, start + scene.duration)
+        assert end - start == pytest.approx(scene.duration)

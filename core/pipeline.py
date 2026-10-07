@@ -869,12 +869,30 @@ class ApplyLayoutsStep(PipelineStep):
             progress(1.0, "sem cenas de layout")
             return
 
-        # remapeia os tempos p/ linha pós-cortes; pula cena cortada
+        from core.ffmpeg_path import get_ffprobe, get_ffmpeg
+        from core.layout_engine import apply_layouts
+        from config.settings import FONTS_DIR
+        import subprocess as sp
+        import json as _json
+
+        # Lê a duração real do vídeo que receberá o overlay. Ela pode ser
+        # menor que a original depois dos cortes/transições.
+        probe = sp.run(
+            [get_ffprobe(), "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(ctx.edited_path)],
+            check=True, capture_output=True, text=True,
+        )
+        output_duration = float(probe.stdout.strip())
+
+        # Remapeia o início para a linha pós-cortes, mas preserva a duração
+        # que o usuário definiu. A prévia trabalha na linha original e uma
+        # cena manual pode atravessar um corte automático; remapear o fim
+        # independentemente faria uma cena de 10s virar 1s no export.
         plan = ctx.edit_plan
         final: list = []
         for sc in layouts:
             start = plan.remap_time(sc.start)
-            end = plan.remap_time(sc.end)
+            end = min(output_duration, start + sc.duration)
             if end - start >= 1.5:
                 from core.edit_plan import LayoutScene
 
@@ -895,20 +913,14 @@ class ApplyLayoutsStep(PipelineStep):
         progress(0.3, f"aplicando {len(final)} cena(s) de layout…")
         out = ctx.work_dir / "layouts.mp4"
         ctx.work_dir.mkdir(parents=True, exist_ok=True)
-        from core.ffmpeg_path import get_ffprobe, get_ffmpeg
-        from core.layout_engine import apply_layouts
-        from config.settings import FONTS_DIR
 
         # dimensões do vídeo atual
-        import subprocess as sp
-
         probe = sp.run(
             [get_ffprobe(), "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height", "-of", "json",
              str(ctx.edited_path)],
             check=True, capture_output=True, text=True,
         )
-        import json as _json
 
         dims = _json.loads(probe.stdout)["streams"][0]
         apply_layouts(
