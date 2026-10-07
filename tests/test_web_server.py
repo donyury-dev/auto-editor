@@ -210,6 +210,38 @@ def test_apply_timeline_to_ctx_edits_transcript(client):
     assert state.ctx.audio_plan.sfx[0].kind == "whoosh"
 
 
+def test_apply_timeline_limita_whooshes_automaticos_antigos(client):
+    c, pid = client
+    state = webapp.PROJECTS[pid]
+    from core.audio_plan import AudioPlan
+    from core.edit_plan import EditPlan
+    from core.pipeline import PipelineContext
+
+    state.ctx = PipelineContext(
+        input_path=Path("x.mp4"),
+        settings=state.settings,
+    )
+    state.ctx.edit_plan = EditPlan(duration=60.0)
+    state.ctx.audio_plan = AudioPlan()
+    state.ctx.transcript = Transcript(words=[], duration=60.0)
+    state.timeline = {
+        "video": {"path": "x.mp4", "duration": 60.0, "width": 64, "height": 48},
+        "cuts": [],
+        "zooms": [],
+        "transition": {"type": "corte", "duration": 0.2},
+        "captions": [],
+        "callouts": [],
+        "music": {"path": None, "label": "", "volume": 0.25},
+        "sfx": [
+            {"id": f"s{i}", "kind": "whoosh", "timestamp": float(i), "path": None}
+            for i in range(8)
+        ],
+    }
+
+    webapp._apply_timeline_to_ctx(state)
+    assert len(state.ctx.audio_plan.sfx) == 2
+
+
 def test_video_stream(client):
     c, pid = client
     state = webapp.PROJECTS[pid]

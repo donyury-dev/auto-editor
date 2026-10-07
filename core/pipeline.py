@@ -521,7 +521,6 @@ class ApplyIllustrationsStep(PipelineStep):
             )
             current_source = out
 
-        keywords = [k for k in ctx.edit_plan.keywords if k.word.strip()]
         if keywords:
             out = ctx.work_dir / "keywords.mp4"
             kw_ass = ctx.work_dir / "keywords.ass"

@@ -1,6 +1,7 @@
 """Testes do plano de áudio (core/audio_plan.py)."""
 
 from core.audio_plan import (
+    MAX_CUT_WHOOSH_EVENTS,
     MAX_SFX_EVENTS,
     SfxEvent,
     remap_sfx,
@@ -52,7 +53,7 @@ def test_limite_maximo_de_eventos():
         cuts=[(i * 5.0, i * 5.0 + 1) for i in range(50)]
     )
     events = suggest_sfx_from_plan(plan)
-    assert len(events) == MAX_SFX_EVENTS
+    assert len(events) == MAX_CUT_WHOOSH_EVENTS
 
 
 def test_remap_descarta_dentro_do_corte_e_remapeia():

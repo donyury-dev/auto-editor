@@ -23,6 +23,7 @@ SFX_LABELS = {
     "pop": "Pop (ilustração)",
 }
 MAX_SFX_EVENTS = 30
+MAX_CUT_WHOOSH_EVENTS = 2
 SFX_MIN_GAP_S = 0.3  # distância mínima entre dois efeitos
 
 
@@ -82,13 +83,15 @@ class AudioPlan:
 def suggest_sfx_from_plan(edit_plan, illustrations=()) -> list[SfxEvent]:
     """Deriva os efeitos sonoros do plano de edição sugerido.
 
-    - whoosh no ponto de cada corte (a transição "voa" pro próximo trecho)
+    - whoosh em no máximo dois cortes (não poluir a edição)
     - impacto no início de cada zoom (ênfase visual)
     - pop na entrada de cada ilustração
     Ordenado por timestamp e com espaçamento mínimo entre eventos.
     """
     events: list[SfxEvent] = []
-    for cut in getattr(edit_plan, "cuts", []):
+    # Um whoosh em cada corte fica cansativo e não corresponde ao estilo
+    # aprovado. Os demais cortes continuam secos, sem som automático.
+    for cut in list(getattr(edit_plan, "cuts", []))[:MAX_CUT_WHOOSH_EVENTS]:
         events.append(
             SfxEvent(
                 kind="whoosh",

@@ -407,15 +407,27 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         ctx.audio_plan.music_path = Path(music_path) if music_path else None
         ctx.audio_plan.music_label = str(music.get("label", ""))
         ctx.audio_plan.music_volume = float(music.get("volume", 0.25))
-        ctx.audio_plan.sfx = [
-            SfxEvent(
-                kind=str(s.get("kind", "whoosh")),
-                timestamp=float(s.get("timestamp", 0)),
-                origin=str(s.get("origin", "manual")),
-                path=Path(s["path"]) if s.get("path") else None,
+        sfx: list[SfxEvent] = []
+        auto_whoosh_count = 0
+        for item in tl.get("sfx", []):
+            kind = str(item.get("kind", "whoosh"))
+            path = Path(item["path"]) if item.get("path") else None
+            # Projetos antigos podem ter sido analisados antes do limite de
+            # dois whooshes por edição. Impede que re-renderizar um projeto
+            # antigo volte a produzir som em todos os cortes.
+            if kind == "whoosh" and path is None:
+                if auto_whoosh_count >= 2:
+                    continue
+                auto_whoosh_count += 1
+            sfx.append(
+                SfxEvent(
+                    kind=kind,
+                    timestamp=float(item.get("timestamp", 0)),
+                    origin=str(item.get("origin", "manual")),
+                    path=path,
+                )
             )
-            for s in tl.get("sfx", [])
-        ]
+        ctx.audio_plan.sfx = sfx
 
 
 def _save_project_json(state: ProjectState) -> None:
