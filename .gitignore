@@ -40,3 +40,6 @@ venv/
 
 # Uploads locais da sessão Verdent
 .verdent/
+
+# Modelo de segmentação (baixado em runtime)
+models/mask/

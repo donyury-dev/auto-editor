@@ -88,6 +88,8 @@ class Settings:
     music_volume: float = 0.25  # volume linear da trilha antes do ducking
     sfx_enabled: bool = True  # efeitos sonoros automáticos (whoosh/ding/…)
     voice_normalize: bool = True  # loudnorm na voz ANTES do ducking
+    # Palavras-chave animadas ficam atrás da pessoa (segmentação u2netp)
+    keywords_behind_person: bool = True
 
     # Fase 6 (templates): parâmetros de ritmo de edição persistidos
     transition_type: str = "corte"

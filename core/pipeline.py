@@ -540,6 +540,35 @@ class ApplyIllustrationsStep(PipelineStep):
             )
             current_source = out
 
+        # Palavras-chave atrás do apresentador: separa a pessoa do fundo
+        # e a recoloca por cima do texto. Falha silenciosa = texto na frente.
+        if keywords and ctx.settings.keywords_behind_person:
+            progress(0.75, "colocando as palavras atrás de você…")
+            try:
+                from core.ffmpeg_path import get_ffmpeg
+                from core.mask_engine import (
+                    overlay_person_segments,
+                    person_overlay_segments,
+                )
+
+                segs = person_overlay_segments(
+                    current_source,
+                    [(k.start, k.end) for k in keywords],
+                    ctx.work_dir,
+                    get_ffmpeg(),
+                )
+                if segs:
+                    out2 = ctx.work_dir / "keywords_behind.mp4"
+                    overlay_person_segments(
+                        current_source, segs, out2, get_ffmpeg()
+                    )
+                    current_source = out2
+            except Exception as exc:
+                logger.warning(
+                    "Palavras atrás da pessoa falhou (%s); texto na frente.",
+                    exc,
+                )
+
         ctx.edited_path = current_source
 
 
