@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from core.edit_plan import LayoutScene
 
@@ -208,10 +209,41 @@ def _render_scene_pngs(
             outline=accent,
             width=max(2, play_w // 450),
         )
-        ds.text(
-            (panel_x + gap, cy + int(play_h * 0.022)),
-            s, font=f_step, fill=(255, 255, 255),
-        )
+        # ícone do pack (se houver): quadrado à direita do cartão
+        img_path = sc.step_images[j] if j < len(sc.step_images) else ""
+        text_x = panel_x + gap
+        max_text_w = panel_w - gap * 2
+        if img_path and Path(img_path).exists():
+            side_px = int(play_h * 0.075)
+            try:
+                icon = Image.open(img_path).convert("RGBA")
+                icon.thumbnail((side_px, side_px))
+                ix = panel_x + panel_w - gap // 2 - side_px - int(gap * 0.4)
+                iy = cy + (int(play_h * 0.095) - icon.height) // 2
+                step.alpha_composite(icon, (max(0, ix), max(0, iy)))
+                # texto não invade o ícone: reduz a largura disponível
+                max_text_w = ix - (panel_x + gap) - int(gap * 0.4)
+            except OSError:
+                pass  # arquivo corrompido: cartão fica só com texto
+        # quebra o texto em até 2 linhas se não couber numa
+        if ds.textlength(s, font=f_step) > max_text_w and " " in s:
+            words = s.split()
+            line1 = ""
+            for w_ in words:
+                cand = (line1 + " " + w_).strip()
+                if ds.textlength(cand, font=f_step) > max_text_w and line1:
+                    break
+                line1 = cand
+            line2 = s[len(line1):].strip()
+            ty = cy + int(play_h * 0.012)
+            ds.text((text_x, ty), line1, font=f_step, fill=(255, 255, 255))
+            ds.text((text_x, ty + int(play_h * 0.038)), line2,
+                    font=f_step, fill=(255, 255, 255))
+        else:
+            ds.text(
+                (text_x, cy + int(play_h * 0.022)),
+                s, font=f_step, fill=(255, 255, 255),
+            )
         step_path = f"{out_base}_step{j}.png"
         step.save(step_path)
         step_paths.append(step_path)

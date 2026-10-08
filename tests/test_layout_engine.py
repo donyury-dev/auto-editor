@@ -1,5 +1,7 @@
 """Testes do motor de cenas de layout (card + painel)."""
 
+from pathlib import Path
+
 import pytest
 
 from core.edit_plan import LayoutScene
@@ -67,7 +69,8 @@ class TestSerializacao:
         plan_dict = {
             "layouts": [
                 {"start": 2.0, "end": 8.0, "side": "right",
-                 "title": "CONCEITO", "steps": ["A", "B"]}
+                 "title": "CONCEITO", "steps": ["A", "B"],
+                 "step_images": ["/pack/icone.png", ""]}
             ],
             "duration": 20.0,
         }
@@ -76,8 +79,10 @@ class TestSerializacao:
         plan = EditPlan.from_dict(plan_dict)
         assert plan.layouts[0].side == "right"
         assert plan.layouts[0].steps == ["A", "B"]
+        assert plan.layouts[0].step_images == ["/pack/icone.png", ""]
         again = EditPlan.from_dict(plan.to_dict())
         assert again.layouts[0].title == "CONCEITO"
+        assert again.layouts[0].step_images == ["/pack/icone.png", ""]
 
     def test_cena_manual_preserva_duracao_ao_atravessar_corte(self):
         """O export não deve encurtar uma cena manual por causa de um corte."""
@@ -95,3 +100,40 @@ class TestSerializacao:
         start = plan.remap_time(scene.start)
         end = min(95.0, start + scene.duration)
         assert end - start == pytest.approx(scene.duration)
+
+
+class TestIconeCartao:
+    def test_render_desenha_icone_no_cartao(self, tmp_path):
+        """O PNG do cartão muda quando um ícone do pack é informado."""
+        from PIL import Image
+
+        from core.layout_engine import _render_scene_pngs
+
+        icon = tmp_path / "icone.png"
+        Image.new("RGBA", (64, 64), (255, 0, 0, 255)).save(icon)
+
+        sc = LayoutScene(start=0, end=6, title="T", steps=["Conceito"])
+        base = tmp_path / "sem"
+        _render_scene_pngs(sc, 540, 960, Path("assets/fonts"), str(base))
+        sem = Image.open(str(base) + "_step0.png").convert("RGBA")
+
+        sc.step_images = [str(icon)]
+        base2 = tmp_path / "com"
+        _render_scene_pngs(sc, 540, 960, Path("assets/fonts"), str(base2))
+        com = Image.open(str(base2) + "_step0.png").convert("RGBA")
+
+        import numpy as np
+
+        delta = np.abs(
+            np.asarray(sem, np.int16) - np.asarray(com, np.int16)
+        )
+        assert (delta.sum(axis=2) > 30).sum() > 50  # ícone visível
+
+    def test_render_com_icone_inexistente_nao_quebra(self, tmp_path):
+        from core.layout_engine import _render_scene_pngs
+
+        sc = LayoutScene(start=0, end=6, title="T", steps=["Conceito"])
+        sc.step_images = [str(tmp_path / "falta.png")]
+        base = tmp_path / "ok"
+        _render_scene_pngs(sc, 540, 960, Path("assets/fonts"), str(base))
+        assert (Path(str(base) + "_step0.png")).exists()

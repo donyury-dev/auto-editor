@@ -52,6 +52,7 @@ export interface LayoutBlock {
   side: string; // "left" | "right" — lado do card do apresentador
   title: string; // título do painel
   steps: string[]; // cartões do painel
+  stepImages?: string[]; // ícone (imagem do pack) por cartão
 }
 
 export interface SfxBlock {

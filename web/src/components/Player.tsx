@@ -269,7 +269,13 @@ export default function Player({
             layoutTitleRef.current.textContent = sc.title;
           if (layoutStepsRef.current)
             layoutStepsRef.current.innerHTML = (sc.steps || [])
-              .map((s) => `<div class="layout-step">${escapeHtml(s)}</div>`)
+              .map((s, i) => {
+                const img = (sc.stepImages || [])[i];
+                const icon = img
+                  ? `<img class="step-icon" src="/api/pack/file?path=${encodeURIComponent(img)}" alt="" draggable="false"/>`
+                  : "";
+                return `<div class="layout-step">${icon}<span>${escapeHtml(s)}</span></div>`;
+              })
               .join("");
           const lv = layoutVidRef.current;
           if (lv && lv.src !== videoUrl) lv.src = videoUrl;

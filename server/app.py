@@ -195,6 +195,7 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
             "side": l.side,
             "title": l.title,
             "steps": list(l.steps),
+            "stepImages": list(l.step_images),
         }
         for i, l in enumerate(ctx.edit_plan.layouts)
     ]
@@ -363,6 +364,9 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
             side="right" if str(l.get("side", "left")) == "right" else "left",
             title=str(l.get("title", "EXPLICAÇÃO") or "EXPLICAÇÃO"),
             steps=[str(s) for s in (l.get("steps") or []) if str(s).strip()],
+            step_images=[
+                str(p) for p in (l.get("stepImages") or [])
+            ],
         )
         for l in tl.get("layouts", [])
         if float(l.get("end", 0)) - float(l.get("start", 0)) >= 1.0
@@ -453,6 +457,49 @@ def _save_project_json(state: ProjectState) -> None:
 # ----------------------------------------------------------------------
 
 
+def _suggest_step_images(pack_manager, ctx) -> None:
+    """Sugere ícones do pack para os cartões da cena de explicação.
+
+    Casa palavras do texto do cartão com o nome dos arquivos do pack
+    (emojis/elementos/overlays). Conservador: sem casamento, sem ícone.
+    """
+    if pack_manager is None or not ctx.edit_plan.layouts:
+        return
+    icon_cats = ("emojis", "elementos", "overlays")
+    catalog: list[str] = []
+    for cat in icon_cats:
+        catalog += [
+            str(i.path) for i in pack_manager.category_items(cat)
+        ]
+    if not catalog:
+        return
+
+    def tokens(text: str) -> set[str]:
+        import re as _re
+
+        return {
+            t for t in _re.findall(r"[a-zà-ÿ0-9]{3,}", text.lower())
+        }
+
+    for sc in ctx.edit_plan.layouts:
+        if sc.step_images:
+            continue  # usuário já escolheu; não sobrescreve
+        images: list[str] = []
+        for s in sc.steps:
+            st = tokens(s)
+            match = next(
+                (
+                    p
+                    for p in catalog
+                    if tokens(Path(p).stem) & st
+                ),
+                "",
+            )
+            images.append(match)
+        if any(images):
+            sc.step_images = images
+
+
 def _analyze_worker(state: ProjectState) -> None:
     state.status = "analyzing"
     state.emit("status", status=state.status)
@@ -469,6 +516,7 @@ def _analyze_worker(state: ProjectState) -> None:
             state.music_manager,
             state.pack_manager,
         ).run(ctx, progress)
+        _suggest_step_images(state.pack_manager, ctx)
         state.timeline = _timeline_from_ctx(ctx)
         state.status = "ready"
         state.emit("timeline", timeline=state.timeline)
@@ -699,6 +747,23 @@ async def upload_video(file: UploadFile) -> dict:
     return {"path": str(dest), "name": file.filename, "size": size}
 
 
+@app.get("/api/pack/file")
+def pack_file(path: str):
+    """Serve uma imagem do pack (ícones dos cartões da cena)."""
+    state = next(iter(PROJECTS.values()), None)
+    if state is None:
+        raise HTTPException(404, "Nenhum projeto aberto.")
+    p = Path(path)
+    allowed = {
+        str(i.path)
+        for cat in ("emojis", "elementos", "overlays", "gifs", "light_leaks")
+        for i in state.pack_manager.category_items(cat)
+    }
+    if str(p) not in allowed or not p.is_file():
+        raise HTTPException(404, "Arquivo fora do pack ou inexistente.")
+    return FileResponse(p)
+
+
 @app.get("/api/files")
 def list_files(dir: str = "") -> dict:
     """Navegador de arquivos local (para escolher o vídeo na interface)."""
@@ -765,7 +830,7 @@ def library() -> dict:
                 {"path": str(item.path), "label": item.name, "origin": "pack"}
             )
         # categorias visuais
-        for cat in ("overlays", "transicoes", "emojis", "gifs", "light_leaks"):
+        for cat in ("overlays", "transicoes", "emojis", "gifs", "light_leaks", "elementos"):
             items = pm.category_items(cat)
             pack[cat] = [
                 {"path": str(i.path), "label": i.name} for i in items[:80]

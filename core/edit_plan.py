@@ -112,6 +112,8 @@ class LayoutScene:
     `side`: lado do card do apresentador ("left" ou "right").
     `title`: título do painel (ex.: "EXPLICAÇÃO").
     `steps`: textos dos cartões do painel, mostrados em sequência.
+    `step_images`: ícone (path de imagem do pack) por cartão, opcional —
+    mesma ordem de `steps`; vazio = cartão só com texto.
     """
 
     start: float
@@ -119,6 +121,7 @@ class LayoutScene:
     side: str = "left"  # lado do card do apresentador
     title: str = "EXPLICAÇÃO"
     steps: list[str] = field(default_factory=list)
+    step_images: list[str] = field(default_factory=list)
     reason: str = ""
 
     @property
@@ -132,6 +135,7 @@ class LayoutScene:
             "side": self.side,
             "title": self.title,
             "steps": list(self.steps),
+            "step_images": list(self.step_images),
             "reason": self.reason,
         }
 
@@ -143,6 +147,8 @@ class LayoutScene:
             side=str(data.get("side", "left")) if data.get("side") else "left",
             title=str(data.get("title", "EXPLICAÇÃO") or "EXPLICAÇÃO"),
             steps=[str(s) for s in data.get("steps", []) if str(s).strip()],
+            # mantém entradas vazias: a posição alinha com `steps`
+            step_images=[str(p) for p in (data.get("step_images") or [])],
             reason=str(data.get("reason", "")),
         )
 

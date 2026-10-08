@@ -231,6 +231,43 @@ export default function Properties({
             }
           />
         </label>
+        {(l.steps || []).length > 0 && (
+          <div className="step-icons">
+            <label>Ícone de cada cartão (do seu pack)</label>
+            {(l.steps || []).map((s, i) => {
+              const imgs = l.stepImages || [];
+              const packImgs = [
+                ...(library?.pack?.emojis || []),
+                ...(library?.pack?.elementos || []),
+                ...(library?.pack?.overlays || []),
+              ];
+              return (
+                <div className="step-icon-row" key={i}>
+                  <span className="step-icon-label" title={s}>
+                    {i + 1}. {s.slice(0, 22)}
+                  </span>
+                  <select
+                    value={imgs[i] || ""}
+                    onChange={(e) => {
+                      const next = [...imgs];
+                      next[i] = e.target.value;
+                      onChange(
+                        patchLayout(timeline, l.id, { stepImages: next })
+                      );
+                    }}
+                  >
+                    <option value="">Sem ícone</option>
+                    {packImgs.map((p) => (
+                      <option key={p.path} value={p.path}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <button className="danger" onClick={onDelete}>Remover cena</button>
       </aside>
     );
@@ -673,6 +710,7 @@ function patchLayout(
     side: string;
     title: string;
     steps: string[];
+    stepImages: string[];
   }>
 ): Timeline {
   return {

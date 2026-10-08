@@ -527,6 +527,39 @@ button.ghost:hover {
   border-radius: 1.6cqh;
   padding: 1.8cqh 2cqw;
   transition: opacity 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 1.6cqh;
+  overflow: hidden;
+}
+.layout-step .step-icon {
+  height: 6.4cqh;
+  max-width: 9cqw;
+  object-fit: contain;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+.step-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.step-icon-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.step-icon-row .step-icon-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+.step-icon-row select {
+  flex: 0 0 45%;
+  max-width: 45%;
 }
 
 .keyword-overlay {
