@@ -23,6 +23,7 @@ export default function App() {
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [library, setLibrary] = useState<Library | null>(null);
+  const [transitionTypes, setTransitionTypes] = useState<string[]>([]);
   const [captionStyles, setCaptionStyles] = useState<CaptionStylePreset[]>([]);
   const [resultMode, setResultMode] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -39,6 +40,7 @@ export default function App() {
 
   useEffect(() => {
     api.library().then(setLibrary).catch(() => {});
+    api.transitions().then((d) => setTransitionTypes(d.types)).catch(() => {});
     api.captionStyles().then((d) => setCaptionStyles(d.styles)).catch(() => {});
   }, [projectId]);
 
@@ -456,7 +458,7 @@ export default function App() {
           onPickSfx={pickSfx}
           onPickTransition={pickTransition}
           transitionType={timeline.transition.type}
-          transitionTypes={[]}
+          transitionTypes={transitionTypes}
         />
         <div className="center">
           <Player

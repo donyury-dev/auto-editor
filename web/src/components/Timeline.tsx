@@ -254,6 +254,66 @@ export default function Timeline({
         </div>
 
         <div
+          className="track music-track"
+          style={{ height: 26 }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).dataset.block) return;
+            seekFromEvent(e);
+          }}
+        >
+          {timeline.music.path ? (
+            <div
+              className="mini-block music"
+              style={{ left: 0, width: laneWidth }}
+              title={`${timeline.music.label} — clique para trocar a música`}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                onSelect({ kind: "music" });
+              }}
+            >
+              <span className="mini-label">
+                ♪ {timeline.music.label || "música"}
+              </span>
+            </div>
+          ) : (
+            <div
+              className="mini-block music empty"
+              style={{ left: 0, width: laneWidth }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                onSelect({ kind: "music" });
+              }}
+            >
+              <span className="mini-label">+ música de fundo (escolha na biblioteca)</span>
+            </div>
+          )}
+        </div>
+
+        <div
+          className="track sfx-track"
+          style={{ height: 24 }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).dataset.block) return;
+            seekFromEvent(e);
+          }}
+        >
+          {timeline.sfx.map((s) => {
+            const d = dragBlock(s.id);
+            const ts = d ? d.start : s.timestamp;
+            return (
+              <div
+                key={s.id}
+                data-block="1"
+                className={`sfx-marker ${isSelected("sfx", s.id) ? "selected" : ""}`}
+                style={{ left: ts * pxPerSec }}
+                title={`SFX ${s.kind} @ ${fmt(s.timestamp)} — arraste para mover`}
+                onPointerDown={(e) => startDrag(e, "sfx", s.id, "move")}
+              />
+            );
+          })}
+        </div>
+
+        <div
           className="track caption-track"
           style={{ height: 30 }}
           onPointerDown={(e) => {
@@ -417,64 +477,6 @@ export default function Timeline({
                   onPointerDown={(e) => startDrag(e, "zoom", z.id, "right")}
                 />
               </div>
-            );
-          })}
-        </div>
-
-        <div
-          className="track music-track"
-          style={{ height: 26 }}
-          onPointerDown={(e) => {
-            if ((e.target as HTMLElement).dataset.block) return;
-            seekFromEvent(e);
-          }}
-        >
-          {timeline.music.path ? (
-            <div
-              className="mini-block music"
-              style={{ left: 0, width: laneWidth }}
-              title={timeline.music.label}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onSelect({ kind: "music" });
-              }}
-            >
-              <span className="mini-label">{timeline.music.label || "música"}</span>
-            </div>
-          ) : (
-            <div
-              className="mini-block music empty"
-              style={{ left: 0, width: laneWidth }}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onSelect({ kind: "music" });
-              }}
-            >
-              <span className="mini-label">+ música de fundo (escolha na biblioteca)</span>
-            </div>
-          )}
-        </div>
-
-        <div
-          className="track sfx-track"
-          style={{ height: 24 }}
-          onPointerDown={(e) => {
-            if ((e.target as HTMLElement).dataset.block) return;
-            seekFromEvent(e);
-          }}
-        >
-          {timeline.sfx.map((s) => {
-            const d = dragBlock(s.id);
-            const ts = d ? d.start : s.timestamp;
-            return (
-              <div
-                key={s.id}
-                data-block="1"
-                className={`sfx-marker ${isSelected("sfx", s.id) ? "selected" : ""}`}
-                style={{ left: ts * pxPerSec }}
-                title={`SFX ${s.kind} @ ${fmt(s.timestamp)} — arraste para mover`}
-                onPointerDown={(e) => startDrag(e, "sfx", s.id, "move")}
-              />
             );
           })}
         </div>
