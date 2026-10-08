@@ -1,5 +1,15 @@
 import type { CaptionStylePreset, Library, Timeline } from "./types";
 
+export interface ProviderInfo {
+  id: string;
+  label: string;
+  model: string;
+  base_url: string;
+  requires_api_key: boolean;
+  supports_base_url: boolean;
+  has_key: boolean;
+}
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
@@ -84,6 +94,24 @@ export const api = {
 
   transitions: () =>
     fetch("/api/transitions").then((r) => j<{ types: string[] }>(r)),
+
+  providers: () =>
+    fetch("/api/providers").then(
+      (r) => j<{ providers: ProviderInfo[]; active: string }>(r)
+    ),
+
+  saveProvider: (p: {
+    provider_id: string;
+    api_key?: string;
+    model?: string;
+    base_url?: string;
+    active?: boolean;
+  }) =>
+    fetch("/api/providers", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+    }).then((r) => j<{ ok: boolean; providers: ProviderInfo[]; active: string }>(r)),
 };
 
 export function openSSE(

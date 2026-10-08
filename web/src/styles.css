@@ -213,6 +213,94 @@ button.ghost:hover {
   padding: 4px 10px;
   font-size: 12px;
 }
+
+/* ---- modal de provedores de IA ---- */
+.provider-modal {
+  width: 520px;
+  padding-bottom: 16px;
+  overflow-y: auto;
+}
+.provider-modal > .hint {
+  padding: 10px 16px 0;
+  display: block;
+}
+.provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+.provider-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+.provider-card:hover {
+  border-color: var(--accent);
+}
+.provider-card.selected {
+  border-color: var(--accent);
+  background: rgba(229, 53, 43, 0.08);
+}
+.provider-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.provider-name em {
+  font-style: normal;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+.provider-name .active-tag {
+  background: var(--accent);
+  color: #fff;
+}
+.provider-name .ok-tag {
+  background: rgba(60, 180, 90, 0.2);
+  color: #6fdc8c;
+}
+.provider-desc {
+  font-size: 11px;
+  opacity: 0.65;
+}
+.provider-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 16px 0;
+}
+.provider-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.provider-form label small {
+  opacity: 0.55;
+}
+.provider-form input {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: inherit;
+  font-size: 13px;
+}
+.provider-form .ok-msg {
+  color: #6fdc8c;
+  font-size: 12px;
+  margin: 0;
+}
 .modal-path {
   padding: 8px 16px;
   color: var(--dim);

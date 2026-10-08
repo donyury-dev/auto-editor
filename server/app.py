@@ -84,7 +84,7 @@ PROJECTS: dict[str, ProjectState] = {}
 def _new_managers(settings: Settings) -> tuple[
     ProviderManager, ImageProviderManager, MusicManager, PackManager
 ]:
-    manager = ProviderManager()
+    manager = _PROVIDER_MANAGER  # configuração de IA compartilhada
     image_manager = ImageProviderManager()
     pack_manager = PackManager(settings)
     music_folders = [settings.music_dir] if settings.music_dir else []
@@ -112,6 +112,51 @@ class TimelineUpdate(BaseModel):
     sfx: list[dict] = []
     caption_style: str = ""
     caption_scale: float = 0.0
+
+
+class ProviderUpdate(BaseModel):
+    """Configuração de um provedor de IA (chave, modelo, ativo)."""
+
+    provider_id: str
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    active: bool = False
+
+
+# Gerenciador global de provedores: a configuração (API key, modelo,
+# ativo) é compartilhada por todos os projetos e sobrevive a reinícios.
+_PROVIDER_MANAGER = ProviderManager()
+
+
+def _providers_payload() -> dict:
+    return {
+        "providers": _PROVIDER_MANAGER.describe_providers(),
+        "active": _PROVIDER_MANAGER.active_id(),
+    }
+
+
+@app.get("/api/providers")
+def list_providers() -> dict:
+    """Lista os provedores de IA disponíveis (nunca expõe a API key)."""
+    return _providers_payload()
+
+
+@app.put("/api/providers")
+def update_provider(req: ProviderUpdate) -> dict:
+    """Salva API key/modelo/base_url e/ou marca o provedor como ativo."""
+    m = _PROVIDER_MANAGER
+    if req.provider_id not in m.provider_ids:
+        raise HTTPException(404, f"Provedor desconhecido: {req.provider_id}")
+    if req.api_key:
+        m.set_api_key(req.provider_id, req.api_key.strip())
+    if req.model is not None:
+        m.set_model(req.provider_id, req.model.strip())
+    if req.base_url is not None:
+        m.set_base_url(req.provider_id, req.base_url)
+    if req.active:
+        m.set_active(req.provider_id)
+    return {"ok": True, **_providers_payload()}
 
 
 # ----------------------------------------------------------------------

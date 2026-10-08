@@ -12,6 +12,7 @@ import TimelineView from "./components/Timeline";
 import LibraryPanel from "./components/Library";
 import PropertiesPanel from "./components/Properties";
 import FileBrowser from "./components/FileBrowser";
+import ProviderModal from "./components/ProviderModal";
 
 type Screen = "home" | "busy" | "editor";
 
@@ -28,6 +29,7 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [showBrowser, setShowBrowser] = useState(false);
+  const [showProviders, setShowProviders] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [renderDone, setRenderDone] = useState(false);
@@ -350,6 +352,9 @@ export default function App() {
           <button className="ghost" onClick={() => setShowBrowser(true)}>
             Escolher por pastas (sem copiar o arquivo)
           </button>
+          <button className="ghost" onClick={() => setShowProviders(true)}>
+            ⚙ Configurar IA (Claude, ChatGPT ou local)
+          </button>
           <p className="hint">
             O vídeo é analisado localmente: transcrição, cortes, legendas e
             sugestões — tudo antes de você revisar na timeline.
@@ -358,6 +363,9 @@ export default function App() {
         </div>
         {showBrowser && (
           <FileBrowser onPick={pickVideo} onClose={() => setShowBrowser(false)} />
+        )}
+        {showProviders && (
+          <ProviderModal onClose={() => setShowProviders(false)} />
         )}
       </div>
     );
@@ -401,6 +409,9 @@ export default function App() {
       <header className="topbar">
         <span className="logo">Auto Editor</span>
         <div className="spacer" />
+        <button className="ghost" onClick={() => setShowProviders(true)}>
+          ⚙ IA
+        </button>
         <button className="accent" onClick={doRender} disabled={rendering}>
           {rendering ? "Renderizando…" : "Renderizar"}
         </button>
@@ -431,6 +442,9 @@ export default function App() {
         </div>
       )}
       {error && <div className="render-bar fail">{error}</div>}
+      {showProviders && (
+        <ProviderModal onClose={() => setShowProviders(false)} />
+      )}
 
       <div className="main">
         <LibraryPanel
