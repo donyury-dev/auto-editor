@@ -37,7 +37,10 @@ class ClaudeProvider(PackSuggestMixin, AIProvider):
             )
         import anthropic  # import lazy: só é necessário quando a IA é usada
 
-        return anthropic.Anthropic(api_key=self.api_key)
+        # timeout curto + 1 retry: análise nunca pode travar esperando rede
+        return anthropic.Anthropic(
+            api_key=self.api_key, timeout=60.0, max_retries=1
+        )
 
     def _json(self, prompt: str) -> Union[dict, list]:
         client = self._client()

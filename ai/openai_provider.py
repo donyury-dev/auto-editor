@@ -47,7 +47,12 @@ class OpenAIProvider(PackSuggestMixin, AIProvider):
             )
         import openai  # import lazy
 
-        kwargs = {"api_key": self.api_key}
+        kwargs = {
+            "api_key": self.api_key,
+            # timeout curto + 1 retry: análise nunca pode travar esperando rede
+            "timeout": 60.0,
+            "max_retries": 1,
+        }
         if self.base_url:
             kwargs["base_url"] = self.base_url
         return openai.OpenAI(**kwargs)

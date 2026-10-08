@@ -263,6 +263,7 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
                     "kind": e.kind,
                     "timestamp": round(e.timestamp, 3),
                     "path": str(e.path) if e.path else None,
+                    "origin": e.origin,
                 }
                 for i, e in enumerate(ctx.audio_plan.sfx)
             ]
@@ -416,10 +417,12 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         for item in tl.get("sfx", []):
             kind = str(item.get("kind", "whoosh"))
             path = Path(item["path"]) if item.get("path") else None
-            # Projetos antigos podem ter sido analisados antes do limite de
-            # dois whooshes por edição. Impede que re-renderizar um projeto
-            # antigo volte a produzir som em todos os cortes.
-            if kind == "whoosh" and path is None:
+            origin = str(item.get("origin", ""))
+            # "manual" = o usuário escolheu na biblioteca: nunca é limitado.
+            # Projetos antigos (sem origin) são tratados como automáticos
+            # para que o limite de dois whooshes continue valendo neles.
+            manual = origin == "manual" or path is not None
+            if kind == "whoosh" and not manual:
                 if auto_whoosh_count >= 2:
                     continue
                 auto_whoosh_count += 1
@@ -427,7 +430,7 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
                 SfxEvent(
                     kind=kind,
                     timestamp=float(item.get("timestamp", 0)),
-                    origin=str(item.get("origin", "manual")),
+                    origin=origin or "manual",
                     path=path,
                 )
             )
@@ -803,6 +806,8 @@ def list_files(dir: str = "") -> dict:
 @app.get("/api/library")
 def library() -> dict:
     """Biblioteca: trilhas padrão + pack externo por categoria."""
+    from core.audio_plan import SFX_KINDS
+
     state = next(iter(PROJECTS.values()), None)
     music_items: list[dict] = []
     sfx_items: list[dict] = []
@@ -824,7 +829,22 @@ def library() -> dict:
                         music_items.append(
                             {"path": str(f), "label": f.stem, "origin": "pack"}
                         )
-        # sfx do pack
+        # sfx: os sintetizados (sempre disponíveis) + os do pack
+        _SFX_LABELS = {
+            "whoosh": "Whoosh (transição)",
+            "ding": "Ding (destaque)",
+            "impact": "Impact (impacto)",
+            "pop": "Pop (estalo)",
+        }
+        for kind in SFX_KINDS:
+            sfx_items.append(
+                {
+                    "path": "",
+                    "label": kind,
+                    "origin": "sintetizado",
+                    "display": _SFX_LABELS.get(kind, kind),
+                }
+            )
         for item in pm.category_items("sfx"):
             sfx_items.append(
                 {"path": str(item.path), "label": item.name, "origin": "pack"}

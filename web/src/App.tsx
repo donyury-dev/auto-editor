@@ -297,7 +297,13 @@ export default function App() {
       ...timeline,
       sfx: [
         ...timeline.sfx,
-        { id, kind: item.label, timestamp: t, path: item.path },
+        {
+          id,
+          kind: item.label,
+          timestamp: t,
+          path: item.path || null,
+          origin: "manual",
+        },
       ].sort((a, b) => a.timestamp - b.timestamp),
     });
   };

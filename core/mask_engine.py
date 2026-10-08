@@ -98,17 +98,22 @@ def person_overlay_segments(
     segments: list[tuple[float, float]],
     work_dir,
     ffmpeg_bin: str,
+    progress=None,
 ) -> list[tuple[float, float, Path]] | None:
     """Gera PNGs RGBA (só a pessoa) para cada segmento do vídeo.
 
     Devolve [(start, end, pasta_dos_pngs)] ou None se o recurso não
     puder ser usado (modelo ausente/sem internet/erro de runtime).
+    `progress(frac, msg)` reporta o andamento (0..1) para a barra.
     """
     import subprocess
 
     segs = merge_segments(segments)
     if not segs:
         return None
+    # Limita o custo em CPU: no máximo 4 trechos, cada um com até 12s.
+    segs = sorted(segs, key=lambda s: s[1] - s[0], reverse=True)[:4]
+    segs = sorted(segs)
     try:
         model_file = ensure_model()
         masker = PersonMasker(model_file)
@@ -121,6 +126,14 @@ def person_overlay_segments(
 
     work_dir = Path(work_dir)
     results: list[tuple[float, float, Path]] = []
+    total_duration = sum(e - s for s, e in segs)
+    fps = min(30.0, max(10.0, 420.0 / max(0.1, total_duration)))
+    done_duration = 0.0
+
+    def report(msg: str) -> None:
+        if progress:
+            progress(done_duration / max(0.1, total_duration), msg)
+
     try:
         for i, (s, e) in enumerate(segs):
             frames_dir = work_dir / f"mask{i}"
@@ -132,21 +145,38 @@ def person_overlay_segments(
                     ffmpeg_bin, "-y", "-loglevel", "error",
                     "-ss", f"{max(0.0, s):.3f}", "-to", f"{e:.3f}",
                     "-i", str(video_path),
-                    "-vf", f"fps={_FPS}",
+                    "-vf", f"fps={fps:g}",
                     str(frames_dir / "f_%05d.png"),
                 ],
                 check=True, capture_output=True,
             )
             frames = sorted(frames_dir.glob("f_*.png"))
             if not frames:
+                done_duration += e - s
+                report(f"trecho {i + 1}/{len(segs)} vazio")
                 continue
+            prev_alpha = None
             for j, fp in enumerate(frames, start=1):
                 img = Image.open(fp).convert("RGB")
-                a = masker.alpha(np.asarray(img))
+                # Reuso temporal: a pessoa se move pouco entre quadros
+                # vizinhos; a máscara só é recalculada a cada 2 quadros
+                # (metade do custo de CPU, mesma qualidade visual).
+                if prev_alpha is None or j % 2 == 1:
+                    a = masker.alpha(np.asarray(img))
+                    prev_alpha = a
+                else:
+                    a = prev_alpha
                 rgba = img.convert("RGBA")
                 rgba.putalpha(Image.fromarray((a * 255).astype("uint8")))
                 rgba.save(person_dir / f"person_{j:05d}.png")
+                if j % 10 == 0:
+                    report(
+                        f"separando você do fundo (trecho {i + 1}/{len(segs)}, "
+                        f"quadro {j}/{len(frames)})…"
+                    )
             results.append((s, e, person_dir))
+            done_duration += e - s
+            report(f"trecho {i + 1}/{len(segs)} separado")
     except Exception as exc:
         logger.warning("Falha ao segmentar pessoa (%s); texto na frente.", exc)
         return None

@@ -77,19 +77,19 @@ export default function LibraryPanel({
           (library && library.sfx.length > 0 ? (
             filter(library.sfx).map((s) => (
               <button
-                key={s.path}
+                key={s.path || s.label}
                 className="lib-item"
-                title={s.path}
+                title={s.path || "Efeito gerado pelo programa"}
                 onClick={() => onPickSfx(s)}
               >
                 <span className="lib-icon">⚡</span>
-                <span className="lib-name">{s.label}</span>
+                <span className="lib-name">{s.display || s.label}</span>
+                {s.origin && <span className="lib-origin">{s.origin}</span>}
               </button>
             ))
           ) : (
             <p className="lib-empty">
-              Nenhum SFX no pack — os efeitos padrão (whoosh, ding, impacto, pop)
-              são gerados automaticamente.
+              Nenhum SFX disponível — configure a pasta de SFX nas Configurações.
             </p>
           ))}
         {tab === "transition" && (

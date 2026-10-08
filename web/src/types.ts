@@ -60,6 +60,7 @@ export interface SfxBlock {
   kind: string;
   timestamp: number;
   path: string | null;
+  origin?: string; // "manual" (biblioteca) | auto (cortes/zooms)
 }
 
 export interface Timeline {
@@ -97,6 +98,7 @@ export interface LibraryItem {
   path: string;
   label: string;
   origin?: string;
+  display?: string; // nome amigável (SFX sintetizados)
 }
 
 export interface Library {
