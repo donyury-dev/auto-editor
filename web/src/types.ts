@@ -79,6 +79,7 @@ export interface Timeline {
   layouts?: LayoutBlock[];
   music: { path: string | null; label: string; volume: number };
   sfx: SfxBlock[];
+  warning?: string | null;
   captionStyle?: string;
   captionScale?: number;
 }

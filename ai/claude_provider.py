@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ClaudeProvider(PackSuggestMixin, AIProvider):
     id = "claude"
     label = "Claude (Anthropic)"
-    default_model = "claude-sonnet-4-5"
+    default_model = "claude-sonnet-5-5"
     env_key = "ANTHROPIC_API_KEY"
     supports_base_url = False
 

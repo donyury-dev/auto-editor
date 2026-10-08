@@ -385,6 +385,10 @@ button.ghost:hover {
 .render-bar.fail {
   color: #ff8080;
 }
+.render-bar.warn {
+  color: #f0c674;
+  background: rgba(240, 198, 116, 0.08);
+}
 
 .main {
   flex: 1;

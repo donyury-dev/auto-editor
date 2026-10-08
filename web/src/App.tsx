@@ -442,6 +442,9 @@ export default function App() {
         </div>
       )}
       {error && <div className="render-bar fail">{error}</div>}
+      {timeline?.warning && (
+        <div className="render-bar warn">{timeline.warning}</div>
+      )}
       {showProviders && (
         <ProviderModal onClose={() => setShowProviders(false)} />
       )}

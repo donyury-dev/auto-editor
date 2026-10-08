@@ -200,6 +200,19 @@ def _group_captions(
     return chunks
 
 
+def _short_reason(exc: BaseException) -> str:
+    """Resumo de uma linha do motivo de a IA ter falhado."""
+    msg = str(exc).strip().splitlines()[0] if str(exc).strip() else ""
+    low = msg.lower()
+    if "credit balance" in low:
+        return "sem créditos na conta do provedor"
+    if "no module named" in low:
+        return "pacote do provedor não instalado"
+    if "authentication" in low or "401" in msg:
+        return "chave de API inválida"
+    return (msg[:80] or "erro desconhecido")
+
+
 def _timeline_from_ctx(ctx: PipelineContext) -> dict:
     """Monta o estado da timeline a partir do contexto do pipeline."""
     assert ctx.transcript is not None and ctx.edit_plan is not None
@@ -315,6 +328,7 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
             if ctx.audio_plan
             else []
         ),
+        "warning": ctx.analysis_warning or None,
     }
     return timeline
 

@@ -53,6 +53,21 @@ StepProgressFn = Callable[[float, str], None]
 PipelineProgressFn = Callable[[float, str, str], None]
 
 
+def _short_reason(exc: BaseException) -> str:
+    """Resumo de uma linha do motivo de a IA ter falhado."""
+    msg = str(exc).strip().splitlines()[0] if str(exc).strip() else ""
+    low = msg.lower()
+    if "credit balance" in low:
+        return "sem créditos na conta do provedor"
+    if "no module named" in low:
+        return "pacote do provedor não instalado"
+    if "authentication" in low or "401" in msg:
+        return "chave de API inválida"
+    if "not_found" in low or "404" in msg:
+        return "modelo indisponível para esta chave"
+    return (msg[:80] or "erro desconhecido")
+
+
 @dataclass
 class PipelineContext:
     """Estado compartilhado entre as etapas de uma execução."""
@@ -83,6 +98,8 @@ class PipelineContext:
     # Direção por corte (ai/director.py): SFX extras sugeridos pela IA,
     # mesclados na etapa de áudio
     direction_sfx: list[SfxEvent] = field(default_factory=list)
+    # Aviso não-fatal da análise (ex.: IA indisponível, caiu pra heurística)
+    analysis_warning: str = ""
 
 
 class PipelineStep(ABC):
@@ -205,9 +222,30 @@ class BuildEditPlanStep(PipelineStep):
             provider.configure_from_settings(ctx.settings)
 
         progress(0.5, f"sugerindo cortes e zooms ({source})…")
-        raw = provider.suggest_edit_plan(
-            text, segments, duration, language=ctx.transcript.language
-        )
+        try:
+            raw = provider.suggest_edit_plan(
+                text, segments, duration, language=ctx.transcript.language
+            )
+        except Exception as exc:
+            # IA indisponível (sem créditos, rede, módulo faltando…):
+            # nunca aborta a análise — cai pra heurística e avisa.
+            logger.warning("Provedor de IA falhou (%s); heurística.", exc)
+            from ai.heuristic_provider import (
+                HeuristicProvider as _FallbackProvider,
+            )
+
+            provider = _FallbackProvider()
+            if hasattr(provider, "configure_from_settings"):
+                provider.configure_from_settings(ctx.settings)
+            source = provider.label
+            ctx.analysis_warning = (
+                f"IA indisponível ({_short_reason(exc)}); edição feita "
+                "com a heurística local."
+            )
+            progress(0.5, f"IA indisponível — usando {source}…")
+            raw = provider.suggest_edit_plan(
+                text, segments, duration, language=ctx.transcript.language
+            )
         plan = EditPlan.from_dict(
             {**raw, "source": source, "duration": duration}
         )
