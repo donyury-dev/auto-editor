@@ -25,6 +25,31 @@ def test_plano_com_silencios_vira_cortes():
     assert raw["transition_type"] in ("corte", "fade")
 
 
+def test_limiar_adaptativo_pega_respiro_com_template_conservador():
+    # Template com silence_gap_s=1.0 não pode engolir respiros de 0.4s
+    # quando o ritmo da fala é rápido (mediana dos gaps pequena).
+    provider = HeuristicProvider()
+    provider.configure_from_settings(
+        type("S", (), {"silence_gap_s": 1.0, "max_zooms": 4,
+                       "zoom_spread_s": 6.0, "zoom_intensity": 0.1,
+                       "transition_type": "corte",
+                       "transition_duration": 0.1})()
+    )
+    words = []
+    t = 0.0
+    for i in range(12):
+        words.append(Word(f"p{i}", t, t + 0.4))
+        t += 0.4
+        if i in (3, 7):  # respiros de 0.4s no meio da fala rápida
+            t += 0.4
+    segments = [
+        {"start": w.start, "end": w.end, "text": w.text} for w in words
+    ]
+    raw = provider.suggest_edit_plan("", segments, duration=t + 1.0)
+    breath_cuts = [c for c in raw["cuts"] if c["end"] - c["start"] < 0.9]
+    assert len(breath_cuts) == 2  # os dois respiros foram pegos
+
+
 def test_plano_e_valido_apos_validate():
     provider = HeuristicProvider()
     words = [

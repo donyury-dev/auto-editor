@@ -118,6 +118,25 @@ class HeuristicProvider(AIProvider):
             return MusicMood(mood="calmo", energy=0.4, suggested_bpm=90)
         return MusicMood(mood="neutro", energy=0.5)
 
+    def _adaptive_gap_threshold(self, words: list[dict]) -> float:
+        """Limiar de silêncio adaptado ao ritmo da fala.
+
+        O template pode trazer um `silence_gap_s` conservador (ex.: 1.0s).
+        Com fala acelerada, respiros de 0.3-0.6s ficam de fora e o vídeo
+        sai com pausas visíveis. Usamos 2.5× a mediana dos gaps (piso de
+        0.35s para não cortar fala normal), sempre respeitando o teto
+        configurado pelo usuário.
+        """
+        gaps = [
+            float(words[i]["start"]) - float(words[i - 1]["end"])
+            for i in range(1, len(words))
+        ]
+        if not gaps:
+            return self.silence_gap_s
+        median = sorted(gaps)[len(gaps) // 2]
+        adaptive = max(0.35, median * 2.5)
+        return min(self.silence_gap_s, adaptive)
+
     def suggest_edit_plan(
         self,
         transcript_text: str,
@@ -127,11 +146,14 @@ class HeuristicProvider(AIProvider):
     ) -> dict:
         words = [s for s in segments if s.get("text", "").strip()]
 
-        # cortes: silêncios entre palavras (e silêncio final)
+        # cortes: silêncios entre palavras (e silêncio final); o limiar
+        # se adapta ao ritmo da fala para pegar respiros mesmo com
+        # templates de gap conservador
+        gap_threshold = self._adaptive_gap_threshold(words)
         cuts = []
         for i in range(1, len(words)):
             gap = float(words[i]["start"]) - float(words[i - 1]["end"])
-            if gap >= self.silence_gap_s:
+            if gap >= gap_threshold:
                 cuts.append(
                     {
                         "start": float(words[i - 1]["end"]),
@@ -139,7 +161,7 @@ class HeuristicProvider(AIProvider):
                         "reason": f"silêncio de {gap:.1f}s",
                     }
                 )
-        if words and duration - float(words[-1]["end"]) >= self.silence_gap_s:
+        if words and duration - float(words[-1]["end"]) >= gap_threshold:
             cuts.append(
                 {
                     "start": float(words[-1]["end"]),

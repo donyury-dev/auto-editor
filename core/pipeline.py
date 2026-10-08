@@ -20,6 +20,7 @@ from audio.mixer import AudioMixer
 from audio.music_manager import MusicManager
 from core.audio_plan import (
     AudioPlan,
+    SfxEvent,
     remap_sfx,
     suggest_sfx_from_plan,
 )
@@ -79,6 +80,9 @@ class PipelineContext:
     # Edição estilo anúncio: instantes de mudança de cena (vazio se a
     # detecção falhar — nunca bloqueia a análise)
     scene_times: list[float] = field(default_factory=list)
+    # Direção por corte (ai/director.py): SFX extras sugeridos pela IA,
+    # mesclados na etapa de áudio
+    direction_sfx: list[SfxEvent] = field(default_factory=list)
 
 
 class PipelineStep(ABC):
@@ -214,15 +218,30 @@ class BuildEditPlanStep(PipelineStep):
             from core.scene_detect import align_cuts_to_scenes
 
             plan.cuts = align_cuts_to_scenes(plan.cuts, ctx.scene_times)
-            # estilo anúncio: cortes em mudança de cena ganham transições
-            # variadas (não fica tudo fade igual)
-            cycle = ["dissolve", "slideleft", "circleopen"]
-            n = 0
-            for c in plan.cuts:
-                if "mudança de cenário" in (c.reason or "") and not c.transition_type:
-                    c.transition_type = cycle[n % len(cycle)]
-                    c.transition_duration = 0.3
-                    n += 1
+        # Direção por corte: com IA ativa, a IA escolhe a transição e o
+        # efeito de cada corte; sem IA, direção heurística local
+        # (cortes de mudança de cenário variados, respiros secos).
+        ctx.direction_sfx = []
+        directed = False
+        if provider is not None and source != "heurística local":
+            progress(0.8, f"direção de cena ({source})…")
+            try:
+                raw_dir = provider.suggest_direction(
+                    plan, segments, duration
+                )
+                if raw_dir:
+                    from ai.director import apply_ai_direction
+
+                    ctx.direction_sfx = apply_ai_direction(
+                        plan, raw_dir, duration
+                    )
+                    directed = True
+            except Exception as exc:
+                logger.warning("Direção da IA falhou (%s); heurística.", exc)
+        if not directed:
+            from ai.director import apply_heuristic_direction
+
+            apply_heuristic_direction(plan)
         plan = validate_plan(plan)
         # palavras-chave em pop (estilo anúncio) — só na primeira análise
         if not plan.keywords:
@@ -630,7 +649,11 @@ class BuildAudioPlanStep(PipelineStep):
             logger.info("Biblioteca de músicas vazia; seguindo sem trilha.")
 
         sfx = (
-            suggest_sfx_from_plan(ctx.edit_plan, ctx.illustrations)
+            suggest_sfx_from_plan(
+                ctx.edit_plan,
+                ctx.illustrations,
+                extra=ctx.direction_sfx,
+            )
             if ctx.settings.sfx_enabled
             else []
         )

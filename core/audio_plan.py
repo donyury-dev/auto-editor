@@ -23,7 +23,7 @@ SFX_LABELS = {
     "pop": "Pop (ilustração)",
 }
 MAX_SFX_EVENTS = 30
-MAX_CUT_WHOOSH_EVENTS = 2
+MAX_CUT_WHOOSH_EVENTS = 3
 SFX_MIN_GAP_S = 0.3  # distância mínima entre dois efeitos
 
 
@@ -80,25 +80,31 @@ class AudioPlan:
         )
 
 
-def suggest_sfx_from_plan(edit_plan, illustrations=()) -> list[SfxEvent]:
-    """Deriva os efeitos sonoros do plano de edição sugerido.
+def suggest_sfx_from_plan(
+    edit_plan, illustrations=(), extra=()
+) -> list[SfxEvent]:
+    """Deriva os efeitos sonoros do plano dirigido (ai/director.py).
 
-    - whoosh em no máximo dois cortes (não poluir a edição)
+    - whoosh APENAS nos cortes que ganharam transição visual do diretor
+      (IA ou heurística) — respiro comum fica seco, sem som
     - impacto no início de cada zoom (ênfase visual)
     - pop na entrada de cada ilustração
+    - `extra`: SFX sugeridos pela direção de IA (origin "IA"), mesclados
+      na mesma linha do tempo
     Ordenado por timestamp e com espaçamento mínimo entre eventos.
     """
     events: list[SfxEvent] = []
-    # Um whoosh em cada corte fica cansativo e não corresponde ao estilo
-    # aprovado. Os demais cortes continuam secos, sem som automático.
-    for cut in list(getattr(edit_plan, "cuts", []))[:MAX_CUT_WHOOSH_EVENTS]:
-        events.append(
-            SfxEvent(
-                kind="whoosh",
-                timestamp=cut.start,
-                origin=f"corte {cut.start:.1f}s",
-            )
+    # Efeito sonoro acompanha o efeito visual: sem transição, sem som.
+    whooshes = [
+        SfxEvent(
+            kind="whoosh",
+            timestamp=cut.start,
+            origin=f"corte {cut.start:.1f}s",
         )
+        for cut in getattr(edit_plan, "cuts", [])
+        if (cut.transition_type or "") not in ("", "corte")
+    ][:MAX_CUT_WHOOSH_EVENTS]
+    events.extend(whooshes)
     for zoom in getattr(edit_plan, "zooms", []):
         events.append(
             SfxEvent(
@@ -115,6 +121,7 @@ def suggest_sfx_from_plan(edit_plan, illustrations=()) -> list[SfxEvent]:
                 origin=f"ilustração {m.start:.1f}s",
             )
         )
+    events.extend(extra)
     return _dedupe_sfx(events)
 
 

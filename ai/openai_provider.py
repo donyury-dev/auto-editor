@@ -261,6 +261,50 @@ class OpenAIProvider(PackSuggestMixin, AIProvider):
             ),
         }
 
+    def suggest_direction(
+        self,
+        plan,
+        segments=None,
+        duration: float = 0.0,
+        language: str = "pt",
+    ) -> Optional[dict]:
+        cuts_lines = [
+            f"{i}: [{float(c.start):.2f}-{float(c.end):.2f}] {c.reason or 'corte'}"
+            for i, c in enumerate(plan.cuts)
+        ]
+        zoom_lines = [
+            f"- [{float(z.start):.2f}-{float(z.end):.2f}]"
+            for z in plan.zooms
+        ]
+        prompt = (
+            "Você é o diretor de edição. Para CADA corte abaixo escolha a "
+            "transição e (opcionalmente) um efeito sonoro, pensando como "
+            "editor de vídeos virais.\n\n"
+            "Regras:\n"
+            "1. Respiros curtos e pausas comuns ficam SECOS (transition "
+            "='corte' ou ausente) — efeito em todo corte cansa.\n"
+            "2. Cortes que coincidem com mudança de cenário/tom ganham "
+            "transições variadas entre [dissolve, slideleft, slideup, "
+            "circleopen, wipeleft, fade], duração 0.2-0.5.\n"
+            "3. sfx (opcional, por corte) em [whoosh, ding, impact, pop] — "
+            "no máximo 3 no vídeo inteiro, só onde o efeito visual pede som.\n"
+            "4. sfx extra: até 3 momentos com kind+timestamp para destacar "
+            "fala/zoom fora dos cortes.\n\n"
+            "Retorne EXATAMENTE este JSON (sem texto extra):\n"
+            '{"cuts": [{"index": 0, "transition": "dissolve", '
+            '"duration": 0.3, "sfx": "whoosh"}], '
+            '"sfx": [{"kind": "ding", "timestamp": 0.0}]}\n\n'
+            f"Duração do vídeo: {duration:.1f}s\n"
+            "Cortes (índice: intervalo motivo):\n"
+            + ("\n".join(cuts_lines) or "(nenhum)")
+            + "\n\nZooms:\n"
+            + ("\n".join(zoom_lines) or "(nenhum)")
+        )
+        data = self._json(prompt)
+        if not isinstance(data, dict):
+            raise ValueError("Resposta inesperada (esperado objeto).")
+        return data
+
     def suggest_illustration_moments(
         self,
         transcript_text: str,

@@ -11,11 +11,24 @@ from core.edit_plan import Cut, EditPlan, ZoomEffect
 from core.illustration_plan import IllustrationMoment
 
 
-def make_plan(cuts=(), zooms=()):
+def make_plan(cuts=(), zooms=(), cut_transitions=True):
     return EditPlan.from_dict(
         {
             "cuts": [
-                {"start": s, "end": e, "reason": "teste"} for s, e in cuts
+                {
+                    "start": s,
+                    "end": e,
+                    "reason": "teste",
+                    **(
+                        {
+                            "transition_type": "fade",
+                            "transition_duration": 0.3,
+                        }
+                        if cut_transitions
+                        else {}
+                    ),
+                }
+                for s, e in cuts
             ],
             "zooms": [
                 {"start": s, "end": e, "intensity": 0.1, "reason": "teste"}
@@ -54,6 +67,22 @@ def test_limite_maximo_de_eventos():
     )
     events = suggest_sfx_from_plan(plan)
     assert len(events) == MAX_CUT_WHOOSH_EVENTS
+
+
+def test_corte_sem_transicao_nao_recebe_whoosh():
+    # Direção: efeito sonoro acompanha o efeito visual. Respiro seco
+    # (sem transição) não gera som.
+    plan = make_plan(cuts=[(10, 12)], cut_transitions=False)
+    events = suggest_sfx_from_plan(plan)
+    assert [e.kind for e in events] == []
+
+
+def test_sfx_extra_da_direcao_e_mesclado():
+    plan = make_plan(cuts=[(10, 12)], cut_transitions=False)
+    extra = [SfxEvent(kind="ding", timestamp=5.0, origin="IA")]
+    events = suggest_sfx_from_plan(plan, extra=extra)
+    assert [e.kind for e in events] == ["ding"]
+    assert events[0].origin == "IA"
 
 
 def test_remap_descarta_dentro_do_corte_e_remapeia():

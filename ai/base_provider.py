@@ -94,6 +94,26 @@ class AIProvider(ABC):
         O chamador é responsável por validar/sanitizar o resultado.
         """
 
+    def suggest_direction(
+        self,
+        plan,
+        segments: Optional[list[dict]] = None,
+        duration: float = 0.0,
+        language: str = "pt",
+    ) -> Optional[dict]:
+        """Direção artística por corte (transição + efeito sonoro).
+
+        `plan` é o EditPlan já montado (cortes com start/end/reason,
+        zooms). Implementação padrão: None (provedor não dirige; o
+        pipeline usa a heurística local de ai/director.py). Provedores
+        com rede devem sobrescrever e devolver:
+        {"cuts": [{"index": 0, "transition": "dissolve", "duration": 0.3,
+                   "sfx": "whoosh"}],
+         "sfx": [{"kind": "ding", "timestamp": 12.5}]}
+        A saída é sempre sanitizada antes de aplicar.
+        """
+        return None
+
     def suggest_pack_usage(
         self,
         transcript_text: str,
