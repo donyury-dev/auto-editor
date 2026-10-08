@@ -131,10 +131,10 @@ def _render_scene_pngs(
     play_h: int,
     fonts_dir,
     out_base: str,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, list[str]]:
     """Desenha a cena (fundo, grade, painel, textos) em PNGs via PIL.
 
-    Devolve (card_x, card_w, gap). `out_base` recebe dois arquivos:
+    Devolve (card_x, card_w, gap, step_paths). `out_base` recebe dois arquivos:
     `{out_base}_bg.png` (opaco, com buraco transparente no card) e
     `{out_base}_frame.png` (só a borda arredondada do card).
     """
@@ -183,7 +183,8 @@ def _render_scene_pngs(
          (panel_x + panel_w - gap, panel_y + int(play_h * 0.09))],
         fill=accent, width=max(2, play_w // 400),
     )
-    # cartões dos passos (até 3)
+    # Cartões dos passos (até 3). Cada um vira uma camada própria para que
+    # o render revele a explicação progressivamente.
     step_size = int(play_w * 0.036)
     try:
         f_step = ImageFont.truetype(
@@ -191,9 +192,12 @@ def _render_scene_pngs(
         )
     except OSError:
         f_step = ImageFont.truetype(str(fonts_dir / "Anton-Regular.ttf"), step_size)
+    step_paths: list[str] = []
     for j, s in enumerate(sc.steps[:3]):
         cy = panel_y + int(play_h * 0.12) + j * int(play_h * 0.115)
-        d.rounded_rectangle(
+        step = Image.new("RGBA", (play_w, play_h), (0, 0, 0, 0))
+        ds = ImageDraw.Draw(step)
+        ds.rounded_rectangle(
             [panel_x + gap // 2, cy, panel_x + panel_w - gap // 2,
              cy + int(play_h * 0.095)],
             radius=int(play_w * 0.015),
@@ -201,10 +205,13 @@ def _render_scene_pngs(
             outline=accent,
             width=max(2, play_w // 450),
         )
-        d.text(
+        ds.text(
             (panel_x + gap, cy + int(play_h * 0.022)),
             s, font=f_step, fill=(255, 255, 255),
         )
+        step_path = f"{out_base}_step{j}.png"
+        step.save(step_path)
+        step_paths.append(step_path)
 
     # buraco transparente onde entra o vídeo do card
     hole = int(max(4, play_w // 240))
@@ -223,7 +230,7 @@ def _render_scene_pngs(
 
     base.save(f"{out_base}_bg.png")
     frame.save(f"{out_base}_frame.png")
-    return card_x, card_w, gap
+    return card_x, card_w, gap, step_paths
 
 
 def apply_layouts(
@@ -260,7 +267,7 @@ def apply_layouts(
     chains.append(f"[0:v]split={n + 1}{split_out}")
 
     for i, sc in enumerate(layouts):
-        card_x, card_w, _ = _render_scene_pngs(
+        card_x, card_w, _, step_paths = _render_scene_pngs(
             sc, play_w, play_h, Path(fonts_dir), str(tmp / f"lay{i}")
         )
         base_idx = len(inputs) // 2
@@ -282,8 +289,24 @@ def apply_layouts(
         )
         # 3) borda arredondada do card por cima
         chains.append(
-            f"[mc{i}][{frame_idx}:v]overlay=0:0:enable='{en}'[main{i + 1}]"
+            f"[mc{i}][{frame_idx}:v]overlay=0:0:enable='{en}'[mf{i}]"
         )
+        current = f"mf{i}"
+        scene_len = max(0.5, sc.end - sc.start)
+        for j, step_path in enumerate(step_paths):
+            step_idx = len(inputs) // 2
+            inputs += ["-i", step_path]
+            step_start = sc.start + scene_len * (
+                (j + 0.5) / (len(step_paths) + 0.5)
+            )
+            step_en = f"between(t,{step_start:.3f},{sc.end:.3f})"
+            output = f"ms{i}_{j}"
+            chains.append(
+                f"[{current}][{step_idx}:v]overlay=0:0:"
+                f"enable='{step_en}'[{output}]"
+            )
+            current = output
+        chains.append(f"[{current}]null[main{i + 1}]")
 
     cmd = [
         ffmpeg_bin, "-y", "-loglevel", "error", *inputs,
