@@ -131,12 +131,13 @@ def _render_scene_pngs(
     play_h: int,
     fonts_dir,
     out_base: str,
-) -> tuple[int, int, int, list[str]]:
+) -> dict:
     """Desenha a cena (fundo, grade, painel, textos) em PNGs via PIL.
 
-    Devolve (card_x, card_w, gap, step_paths). `out_base` recebe dois arquivos:
-    `{out_base}_bg.png` (opaco, com buraco transparente no card) e
-    `{out_base}_frame.png` (só a borda arredondada do card).
+    Devolve um dict com as posições do card e os caminhos das camadas:
+    `_bg.png` (opaco, com buraco transparente no card), `_panel.png`
+    (painel + título, animado separadamente), `_frame.png` (borda do
+    card) e um `_step{j}.png` por cartão.
     """
     from PIL import Image, ImageDraw, ImageFont
 
@@ -159,10 +160,12 @@ def _render_scene_pngs(
     for y in range(0, play_h, step):
         d.line([(0, y), (play_w, y)], fill=grid_rgb, width=2)
 
-    # painel
+    # painel é uma camada própria para poder deslizar com fade no render
     panel_y = int(play_h * 0.18)
     panel_h = int(play_h * 0.5)
-    d.rounded_rectangle(
+    panel = Image.new("RGBA", (play_w, play_h), (0, 0, 0, 0))
+    dp = ImageDraw.Draw(panel)
+    dp.rounded_rectangle(
         [panel_x, panel_y, panel_x + panel_w, panel_y + panel_h],
         radius=int(play_w * 0.02),
         fill=panel_rgb + (240,),
@@ -172,13 +175,13 @@ def _render_scene_pngs(
     # título
     title_size = int(play_w * 0.045)
     f_title = ImageFont.truetype(str(fonts_dir / "Anton-Regular.ttf"), title_size)
-    d.text(
+    dp.text(
         (panel_x + gap, panel_y + int(play_h * 0.025)),
         sc.title.upper(),
         font=f_title,
         fill=(255, 255, 255),
     )
-    d.line(
+    dp.line(
         [(panel_x + gap, panel_y + int(play_h * 0.09)),
          (panel_x + panel_w - gap, panel_y + int(play_h * 0.09))],
         fill=accent, width=max(2, play_w // 400),
@@ -229,8 +232,17 @@ def _render_scene_pngs(
     )
 
     base.save(f"{out_base}_bg.png")
+    panel.save(f"{out_base}_panel.png")
     frame.save(f"{out_base}_frame.png")
-    return card_x, card_w, gap, step_paths
+    return {
+        "card_x": card_x,
+        "card_w": card_w,
+        "gap": gap,
+        "panel_x": panel_x,
+        "panel_w": panel_w,
+        "steps": step_paths,
+        "center_x": (play_w - card_w) // 2,
+    }
 
 
 def apply_layouts(
@@ -267,37 +279,69 @@ def apply_layouts(
     chains.append(f"[0:v]split={n + 1}{split_out}")
 
     for i, sc in enumerate(layouts):
-        card_x, card_w, _, step_paths = _render_scene_pngs(
+        geo = _render_scene_pngs(
             sc, play_w, play_h, Path(fonts_dir), str(tmp / f"lay{i}")
         )
+        card_x, card_w = geo["card_x"], geo["card_w"]
         base_idx = len(inputs) // 2
         inputs += ["-i", f"{tmp / ('lay%d_bg.png' % i)}"]
+        panel_idx = len(inputs) // 2
+        inputs += ["-i", f"{tmp / ('lay%d_panel.png' % i)}"]
         frame_idx = len(inputs) // 2
         inputs += ["-i", f"{tmp / ('lay%d_frame.png' % i)}"]
 
         en = f"between(t,{sc.start:.3f},{sc.end:.3f})"
-        # 1) fundo/grade/painel cobrem o frame (com buraco no card)
+        # 1) fundo/grade cobrem o frame (com buraco no card)
         chains.append(
             f"[main{i}][{base_idx}:v]overlay=0:0:enable='{en}'[mb{i}]"
         )
-        # 2) vídeo original recortado na proporção do card, no buraco
+        # 2) vídeo original recortado na proporção do card: o apresentador
+        #    "sai do centro" deslizando até a posição final (0.6s, ease-out)
         chains.append(
             f"[src{i}]crop=w={card_w}:h={play_h}:x=(iw-{card_w})/2:y=0[cv{i}]"
         )
-        chains.append(
-            f"[mb{i}][cv{i}]overlay={card_x}:0:enable='{en}'[mc{i}]"
+        slide_dur = 0.6
+        # ease-out quadrático: x(t) = final + (inicial-final)*(1-p)^2
+        card_x_expr = (
+            f"'{card_x}+pow(max(0,({slide_dur}-(t-{sc.start:.3f}))"
+            f"/{slide_dur}),2)*({geo['center_x']}-{card_x})'"
         )
-        # 3) borda arredondada do card por cima
         chains.append(
-            f"[mc{i}][{frame_idx}:v]overlay=0:0:enable='{en}'[mf{i}]"
+            f"[mb{i}][cv{i}]overlay=x={card_x_expr}:0:enable='{en}'[mc{i}]"
         )
-        current = f"mf{i}"
+        # 3) borda arredondada do card, acompanhando a posição
+        frame_x_expr = (
+            f"'{card_x}+pow(max(0,({slide_dur}-(t-{sc.start:.3f}))"
+            f"/{slide_dur}),2)*({geo['center_x']}-{card_x})'"
+        )
+        chains.append(
+            f"[mc{i}][{frame_idx}:v]overlay=x={frame_x_expr}:0:"
+            f"enable='{en}'[mf{i}]"
+        )
+        # 4) painel desliza do lado de fora + fade de entrada (0.5s)
+        p_in = (
+            f"pow(max(0,1-(t-{sc.start:.3f})/0.5),2)"
+        )
+        # Com o apresentador à esquerda, o painel entra pela direita; com
+        # o apresentador à direita, entra pela esquerda.
+        panel_dir = "+" if sc.side == "left" else "-"
+        panel_x_expr = (
+            f"'{panel_dir}({p_in}*{int(play_w * 0.12)})'"
+        )
+        chains.append(
+            f"[{panel_idx}:v]format=rgba,"
+            f"fade=t=in:st={sc.start:.3f}:d=0.5:alpha=1[pf{i}]"
+        )
+        chains.append(
+            f"[mf{i}][pf{i}]overlay=x={panel_x_expr}:0:enable='{en}'[mp{i}]"
+        )
+        current = f"mp{i}"
         scene_len = max(0.5, sc.end - sc.start)
-        for j, step_path in enumerate(step_paths):
+        for j, step_path in enumerate(geo["steps"]):
             step_idx = len(inputs) // 2
             inputs += ["-i", step_path]
             step_start = sc.start + scene_len * (
-                (j + 0.5) / (len(step_paths) + 0.5)
+                (j + 0.5) / (len(geo["steps"]) + 0.5)
             )
             step_en = f"between(t,{step_start:.3f},{sc.end:.3f})"
             output = f"ms{i}_{j}"

@@ -281,8 +281,26 @@ export default function Player({
           ".layout-panel"
         ) as HTMLElement | null;
         if (panel) {
-          const off = (1 - p) * 10;
+          const off = (1 - p) * (1 - p) * 12;
           panel.style.transform = `translateX(${sc.side === "right" ? "" : "-"}${off.toFixed(2)}%)`;
+        }
+        // card do apresentador desliza do centro para o lado (0.6s ease-out)
+        const card = layEl.querySelector(
+          ".layout-card"
+        ) as HTMLElement | null;
+        if (card) {
+          const pc = Math.min(1, (t - sc.start) / 0.6);
+          const ease = 1 - (1 - pc) * (1 - pc);
+          const finalPct = 3;
+          const centerPct = (100 - 44) / 2;
+          const leftPct = finalPct + (centerPct - finalPct) * (1 - ease);
+          if (sc.side === "right") {
+            card.style.right = `${leftPct.toFixed(2)}%`;
+            card.style.left = "auto";
+          } else {
+            card.style.left = `${leftPct.toFixed(2)}%`;
+            card.style.right = "auto";
+          }
         }
         // vídeo dentro do card sincronizado com o principal
         const lv = layoutVidRef.current;
