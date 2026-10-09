@@ -118,7 +118,11 @@ class TranscribeStep(PipelineStep):
     weight = 0.5
 
     def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
-        engine = TranscriptionEngine(model_size=ctx.settings.whisper_model)
+        from config.settings import resolve_whisper_model
+
+        engine = TranscriptionEngine(
+            model_size=resolve_whisper_model(ctx.settings.whisper_model)
+        )
         ctx.transcript = engine.transcribe(ctx.input_path, progress=progress)
         if not ctx.transcript.words:
             raise RuntimeError(

@@ -55,6 +55,36 @@ VERTICAL_RESOLUTION = (1080, 1920)  # Reels / TikTok / Shorts
 HORIZONTAL_RESOLUTION = (1920, 1080)  # YouTube
 
 
+def resolve_whisper_model(configured: str | None = None) -> str:
+    """Escolhe o modelo Whisper adequado à máquina atual.
+
+    Prioridade: variável de ambiente WHISPER_MODEL > configurado.
+    Em servidores com pouca RAM (ex.: plano Starter do Render, 512 MB),
+    o modelo 'small' estoura a memória e o processo é morto no meio da
+    transcrição — nesses casos usa um modelo menor automaticamente.
+    """
+    env = os.environ.get("WHISPER_MODEL", "").strip()
+    if env:
+        return env
+    model = (configured or "small").strip() or "small"
+    total_gb = -1.0
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("MemTotal"):
+                    total_gb = int(line.split()[1]) / (1024 * 1024)
+                    break
+    except (OSError, ValueError, IndexError):
+        return model  # não é Linux ou não deu para ler — usa o configurado
+    if total_gb < 0:
+        return model
+    if total_gb < 1.2:
+        return "tiny"
+    if total_gb < 3.0:
+        return "base"
+    return model
+
+
 class OutputFormat(str, Enum):
     """Formato de saída do vídeo exportado."""
 

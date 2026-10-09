@@ -85,7 +85,11 @@ class TranscriptionEngine:
             compute_type=self.compute_type,
         )
         segments, info = model.transcribe(
-            str(media_path), word_timestamps=True, vad_filter=True
+            str(media_path),
+            word_timestamps=True,
+            vad_filter=True,
+            # Em CPU, beam 1 é ~2-3x mais rápido com qualidade quase igual
+            **({} if self.device == "cuda" else {"beam_size": 1}),
         )
 
         words: list[Word] = []

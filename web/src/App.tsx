@@ -37,6 +37,16 @@ export default function App() {
   const [error, setError] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const closeSSE = useRef<(() => void) | null>(null);
+  const screenRef = useRef<Screen>("home");
+  const renderingRef = useRef(false);
+  const gotErrorRef = useRef(false);
+
+  useEffect(() => {
+    screenRef.current = screen;
+  }, [screen]);
+  useEffect(() => {
+    renderingRef.current = rendering;
+  }, [rendering]);
 
   useEffect(() => {
     api.library().then(setLibrary).catch(() => {});
@@ -67,6 +77,7 @@ export default function App() {
 
   const startSSE = useCallback((id: string, mode: "analyze" | "render") => {
     closeSSE.current?.();
+    gotErrorRef.current = false;
     closeSSE.current = openSSE(
       id,
       {
@@ -84,11 +95,27 @@ export default function App() {
           setRenderDone(true);
         },
         error: (d: any) => {
+          gotErrorRef.current = true;
           setError(d.message);
           setRendering(false);
         },
       },
-      () => {}
+      () => {
+        // Conexão caiu sem evento de erro/done — o worker provavelmente
+        // morreu (ex.: servidor sem memória). Avisa em vez de travar.
+        if (gotErrorRef.current) return;
+        if (screenRef.current === "busy") {
+          setError(
+            "A análise foi interrompida (o servidor pode ter ficado sem memória). Tente novamente — foi escolhido automaticamente um modelo de transcrição mais leve."
+          );
+          setScreen("home");
+        } else if (renderingRef.current) {
+          setError(
+            "A renderização foi interrompida (o servidor pode ter ficado sem memória). Tente novamente."
+          );
+          setRendering(false);
+        }
+      }
     );
   }, []);
 
@@ -389,7 +416,14 @@ export default function App() {
             />
           </div>
           <p className="pct">{Math.round(progress.overall * 100)}%</p>
-          {error && <p className="error">{error}</p>}
+          {error && (
+            <>
+              <p className="error">{error}</p>
+              <button className="ghost" onClick={() => setScreen("home")}>
+                Voltar
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
