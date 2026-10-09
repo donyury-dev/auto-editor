@@ -137,3 +137,37 @@ def validate_illustrations(
             continue
         kept.append(m)
     return kept
+
+
+def _norm_text(t: str) -> str:
+    import unicodedata
+
+    t = unicodedata.normalize("NFD", str(t or "").lower())
+    return "".join(c for c in t if unicodedata.category(c) != "Mn").strip()
+
+
+def dedupe_callouts_vs_keywords(
+    moments: list[IllustrationMoment], keywords: list
+) -> list[IllustrationMoment]:
+    """Descarta call-outs que repetem uma palavra-chave no mesmo momento.
+
+    A IA sugere call-out "TECNOLOGIA" e o motor de palavras-chave cria o
+    pop "tecnologia" na mesma fala — o texto aparecia DUAS vezes na tela.
+    O pop (mais rico: estilo/animação/travessia) fica; o call-out sai.
+    """
+    kept: list[IllustrationMoment] = []
+    for m in moments:
+        if m.kind != "callout":
+            kept.append(m)
+            continue
+        text = _norm_text(m.callout_text or m.text)
+        dup = any(
+            (nw in text or text in nw)
+            and k.start < m.end
+            and m.start < k.end
+            for k in keywords
+            if (nw := _norm_text(k.word))
+        )
+        if not dup:
+            kept.append(m)
+    return kept

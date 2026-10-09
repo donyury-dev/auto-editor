@@ -104,8 +104,9 @@ def test_write_keywords_ass_estilos_variados(tmp_path):
     assert "\\frz3" in text
     # quebra: karaoke por letra
     assert "\\k1" in text or "\\k2" in text or "\\k3" in text
-    # posição acima da cabeça (20% da altura), não no rosto
-    assert f"\\pos(540,{int(1920 * 0.20)})" in text
+    # posição sobre o corpo (38% da altura): a máscara de pessoa recoloca
+    # o apresentador por cima do texto ("palavra atrás de mim")
+    assert f"\\pos(540,{int(1920 * 0.38)})" in text
 
 
 def test_write_keywords_ass_auto_ajuste_palavra_longa(tmp_path):

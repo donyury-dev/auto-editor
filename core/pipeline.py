@@ -431,6 +431,14 @@ class BuildIllustrationPlanStep(PipelineStep):
         moments = validate_illustrations(
             moments, duration, ctx.transcript.words, density_s=density
         )
+        # call-out que repete palavra-chave no mesmo momento sai fora
+        # (o pop da palavra já cobre o efeito — sem texto duplicado)
+        if ctx.edit_plan is not None and ctx.edit_plan.keywords:
+            from core.illustration_plan import dedupe_callouts_vs_keywords
+
+            moments = dedupe_callouts_vs_keywords(
+                moments, ctx.edit_plan.keywords
+            )
 
         image_provider_id = ctx.settings.illustration_provider
         total = len(moments)

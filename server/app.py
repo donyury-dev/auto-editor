@@ -81,6 +81,67 @@ class ProjectState:
 PROJECTS: dict[str, ProjectState] = {}
 
 
+def _revive_projects_from_disk() -> None:
+    """Reabre os projetos salvos em output/web_projects/ ao iniciar.
+
+    O projeto é criado "pronto" (timeline restaurada): o usuário recarrega
+    a página e continua de onde parou, mesmo depois de o servidor cair.
+    """
+    if not PROJECTS_DIR.is_dir():
+        return
+    settings = Settings.load()
+    for folder in sorted(PROJECTS_DIR.iterdir()):
+        meta = folder / "project.json"
+        if not meta.is_file() or folder.name in PROJECTS:
+            continue
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+            video_path = Path(data.get("video_path", ""))
+            if not video_path.exists():
+                continue
+            manager, image_manager, music_manager, pack_manager = (
+                _new_managers(settings)
+            )
+            state = ProjectState(
+                id=folder.name,
+                video_path=video_path,
+                settings=settings,
+                manager=manager,
+                image_manager=image_manager,
+                music_manager=music_manager,
+                pack_manager=pack_manager,
+            )
+            state.timeline = data.get("timeline", {}) or {}
+            if state.timeline:
+                state.status = "ready"
+                # contexto mínimo para re-renderizar sem nova análise:
+                # _apply_timeline_to_ctx reconstrói o plano a partir da
+                # timeline salva (cortes, legendas, áudio, palavras…)
+                from core.edit_plan import EditPlan as _EditPlan
+                from core.models import Transcript as _Transcript
+                from core.pipeline import PipelineContext as _Ctx
+
+                tl = state.timeline
+                ctx = _Ctx(
+                    input_path=video_path, settings=state.settings
+                )
+                ctx.edit_plan = _EditPlan(
+                    duration=float(
+                        (tl.get("video") or {}).get("duration", 0.0)
+                    ),
+                    source="reaberto do disco",
+                )
+                ctx.transcript = _Transcript(
+                    duration=float(
+                        (tl.get("video") or {}).get("duration", 0.0)
+                    )
+                )
+                state.ctx = ctx
+            PROJECTS[state.id] = state
+        except Exception as exc:
+            logger.warning("Projeto %s não pôde ser reaberto: %s", folder.name, exc)
+
+
 def _new_managers(settings: Settings) -> tuple[
     ProviderManager, ImageProviderManager, MusicManager, PackManager
 ]:
@@ -413,6 +474,15 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         if float(k.get("end", 0)) > float(k.get("start", 0))
         and str(k.get("text", "")).strip()
     ]
+
+    # call-out que repete palavra-chave no mesmo momento sai fora
+    # (projetos antigos já salvos com duplicata também ficam limpos)
+    if ctx.edit_plan.keywords:
+        from core.illustration_plan import dedupe_callouts_vs_keywords
+
+        ctx.illustrations = dedupe_callouts_vs_keywords(
+            ctx.illustrations, ctx.edit_plan.keywords
+        )
 
     # cenas de layout editadas pelo usuário (timing/lado/título/passos)
     from core.edit_plan import LayoutScene
@@ -938,3 +1008,7 @@ else:  # pragma: no cover - durante desenvolvimento
                 "message": "Frontend não compilado. Rode: cd web && npm install && npm run build"
             }
         )
+
+
+# Reabre projetos salvos (após todas as definições do módulo)
+_revive_projects_from_disk()

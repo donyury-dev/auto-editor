@@ -31,8 +31,10 @@ MIN_GAP_S = 4.0  # mínimo entre um pop e outro
 MIN_WORD_LEN = 4  # palavras muito curtas não chamam atenção
 POP_DURATION_S = 1.5  # tempo em tela
 
-# posição vertical do pop: acima da cabeça (talking head), não no rosto
-KW_Y_FRAC = 0.20
+# posição vertical do pop: sobre o corpo da pessoa — a máscara de
+# pessoa (keywords_behind_person) recoloca o apresentador POR CIMA do
+# texto, dando o efeito "palavra atrás de mim" do vídeo modelo
+KW_Y_FRAC = 0.38
 
 # crescimento máximo PÓS-entrada de cada efeito (usado no auto-ajuste;
 # o slam do impacto é momentâneo e proposital — assenta dentro disso)
