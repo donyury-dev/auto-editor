@@ -15,6 +15,7 @@ WORKDIR /app
 COPY requirements-server.txt .
 RUN pip install --no-cache-dir -r requirements-server.txt
 COPY core/ ./core/
+COPY audio/ ./audio/
 COPY ai/ ./ai/
 COPY config/ ./config/
 COPY server/ ./server/
