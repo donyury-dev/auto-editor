@@ -2,5 +2,5 @@ services:
   - type: web
     name: auto-editor
     runtime: docker
-    plan: free
+    plan: starter
     healthCheckPath: /api/health
