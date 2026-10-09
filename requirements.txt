@@ -9,6 +9,8 @@ python-dotenv>=1.0.1
 opencv-python-headless>=4.8
 requests>=2.31.0
 pillow>=10.0.0
+# Segmentação de pessoa (palavras-chave atrás do apresentador)
+onnxruntime>=1.17,<2
 # Servidor web (editor no navegador)
 fastapi>=0.115
 uvicorn>=0.30

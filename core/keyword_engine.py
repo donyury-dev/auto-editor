@@ -1,4 +1,4 @@
-"""Palavras-chave em pop gigante (estilo anúncio).
+r"""Palavras-chave em pop gigante (estilo anúncio).
 
 Escolhe as palavras mais fortes da fala e gera uma camada ASS com
 efeitos variados, como no vídeo de referência:
@@ -82,12 +82,21 @@ STOPWORDS_PT = {
     "tém", "um", "uma", "você", "vocês", "voce",
 }
 
+# palavras genéricas/abstratas: são longas, mas não rendem destaque
+# visual (o espectador não associa a nada concreto)
+_GENERIC = {
+    "explicação", "explicando", "coisa", "coisas", "pessoal", "gente",
+    "vídeo", "palavra", "palavras", "forma", "jeito", "questão", "assunto",
+    "ideia", "ponto", "hora", "momento", "verdade", "sentido", "exemplo",
+    "parte", "partes", "tipo", "maneira", "situação", "importante",
+}
+
 _WORD_RE = re.compile(r"^[a-záàâãéêíóôõúüç]+$", re.IGNORECASE)
 
 
 def _is_strong(word: str) -> bool:
     w = word.strip().strip(".,!?…—-").lower()
-    if len(w) < MIN_WORD_LEN or w in STOPWORDS_PT:
+    if len(w) < MIN_WORD_LEN or w in STOPWORDS_PT or w in _GENERIC:
         return False
     if not _WORD_RE.match(w):
         return False

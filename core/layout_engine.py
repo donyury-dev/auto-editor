@@ -122,17 +122,61 @@ def pick_layouts(words: list, duration: float) -> list[LayoutScene]:
     layouts: list[LayoutScene] = []
     for n, c in enumerate(chosen):
         side = "left" if n % 2 == 0 else "right"
+        title, steps = _title_and_steps(words, c.start, c.end)
         layouts.append(
             LayoutScene(
                 start=c.start,
                 end=c.end,
                 side=side,
-                title="EXPLICAÇÃO",
-                steps=[],
+                title=title,
+                steps=steps,
                 reason="trecho explicativo detectado na fala",
             )
         )
     return layouts
+
+
+def _title_and_steps(words: list, start: float, end: float) -> tuple[str, list[str]]:
+    """Título e cartões do painel derivados da FALA do trecho.
+
+    O título é a palavra mais forte do trecho (não-genérica) — nada de
+    "EXPLICAÇÃO" solto sem contexto. Os cartões recebem a própria frase
+    explicativa dividida em blocos curtos (até 3), revelados em progresso.
+    """
+    ws = [w for w in words if w.start < end and w.end > start]
+    tokens = [re.sub(r"[^\wÀ-ÿ-]", "", w.text).strip() for w in ws]
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return "EXPLICAÇÃO", []
+
+    from core.keyword_engine import MIN_WORD_LEN, STOPWORDS_PT
+
+    strong = [
+        t for t in tokens
+        if len(t) >= MIN_WORD_LEN + 2 and t.lower() not in STOPWORDS_PT
+        and t.lower() not in GENERIC_TITLES
+    ]
+    pool = strong or [t for t in tokens if len(t) >= MIN_WORD_LEN] or tokens
+    title = max(pool, key=len)[:20].upper()
+
+    # cartões: a frase falada dividida em até 3 blocos de ~6 palavras
+    texts = [w.text.strip() for w in ws if w.text.strip()]
+    n_chunks = min(3, max(1, round(len(texts) / 6)))
+    size = max(1, -(-len(texts) // n_chunks))
+    steps = []
+    for i in range(0, len(texts), size):
+        chunk = " ".join(texts[i:i + size]).strip()
+        if chunk:
+            steps.append(chunk)
+    return title, steps[:3]
+
+
+# palavras genéricas/abstratas que não servem de título de painel
+GENERIC_TITLES = {
+    "explicação", "explicando", "coisa", "coisas", "gente", "pessoal",
+    "vídeo", "palavra", "palavras", "forma", "jeito", "questão", "assunto",
+    "ideia", "ponto", "hoje", "agora", "melhor", "tudo", "nada", "verdade",
+}
 
 
 # ----------------------------------------------------------------------
