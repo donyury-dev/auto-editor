@@ -17,6 +17,8 @@ RUN pip install --no-cache-dir -r requirements-server.txt
 COPY core/ ./core/
 COPY audio/ ./audio/
 COPY ai/ ./ai/
+COPY images/ ./images/
+COPY assets/ ./assets/
 COPY config/ ./config/
 COPY server/ ./server/
 COPY scripts/ ./scripts/
