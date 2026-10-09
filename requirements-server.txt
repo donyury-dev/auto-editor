@@ -1,0 +1,13 @@
+# Dependências do servidor web (sem PyQt6/keyring — não usados no navegador).
+faster-whisper>=1.0.3,<2
+av>=18,<19
+anthropic>=0.40.0
+openai>=1.35.0
+python-dotenv>=1.0.1
+opencv-python-headless>=4.8
+requests>=2.31.0
+pillow>=10.0.0
+fastapi>=0.115
+uvicorn>=0.30
+sse-starlette>=2.0
+python-multipart>=0.0.9
