@@ -120,8 +120,12 @@ export function openSSE(
   onClose?: () => void
 ): () => void {
   const es = new EventSource(`/api/projects/${id}/events`);
+  let lastEventTs = Date.now();
+  let failCount = 0;
   for (const [name, fn] of Object.entries(handlers)) {
     es.addEventListener(name, (ev) => {
+      lastEventTs = Date.now();
+      failCount = 0;
       try {
         fn(JSON.parse((ev as MessageEvent).data));
       } catch {
@@ -129,9 +133,21 @@ export function openSSE(
       }
     });
   }
+  // Reconexões transitórias são normais no SSE — só tratamos como queda
+  // quando o navegador desiste (CLOSED) ou as falhas se repetem sem
+  // evento nenhum por mais de 15s (servidor provavelmente morreu).
+  es.onopen = () => {
+    failCount = 0;
+  };
   es.onerror = () => {
-    es.close();
-    onClose?.();
+    failCount++;
+    const dead =
+      es.readyState === EventSource.CLOSED ||
+      (failCount >= 3 && Date.now() - lastEventTs > 15000);
+    if (dead) {
+      es.close();
+      onClose?.();
+    }
   };
   return () => es.close();
 }

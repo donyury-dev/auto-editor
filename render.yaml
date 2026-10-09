@@ -4,3 +4,6 @@ services:
     runtime: docker
     plan: starter
     healthCheckPath: /api/health
+    envVars:
+      - key: WHISPER_MODEL
+        value: tiny

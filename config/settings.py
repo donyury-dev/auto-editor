@@ -67,22 +67,48 @@ def resolve_whisper_model(configured: str | None = None) -> str:
     if env:
         return env
     model = (configured or "small").strip() or "small"
-    total_gb = -1.0
-    try:
-        with open("/proc/meminfo", encoding="ascii") as fh:
-            for line in fh:
-                if line.startswith("MemTotal"):
-                    total_gb = int(line.split()[1]) / (1024 * 1024)
-                    break
-    except (OSError, ValueError, IndexError):
-        return model  # não é Linux ou não deu para ler — usa o configurado
+    total_gb = _detect_ram_gb()
     if total_gb < 0:
-        return model
+        return model  # não deu para medir — usa o configurado
     if total_gb < 1.2:
         return "tiny"
     if total_gb < 3.0:
         return "base"
     return model
+
+
+def _detect_ram_gb() -> float:
+    """RAM visível em GB, considerando o limite do container (cgroup).
+
+    Em Docker/Render o /proc/meminfo mostra a RAM DO HOST (dezenas de GB),
+    não o limite real do container — por isso também lemos os cgroups e
+    usamos o MENOR valor encontrado.
+    """
+    candidates: list[float] = []
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("MemTotal"):
+                    candidates.append(int(line.split()[1]) / (1024 * 1024))
+                    break
+    except (OSError, ValueError, IndexError):
+        pass
+    # cgroup v2 e v1
+    for path in (
+        "/sys/fs/cgroup/memory.max",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    ):
+        try:
+            with open(path, encoding="ascii") as fh:
+                raw = fh.read().strip()
+            if raw and raw != "max":
+                value = int(raw)
+                # v1 usa um valor gigante quando não há limite
+                if 0 < value < (1 << 60):
+                    candidates.append(value / (1024**3))
+        except (OSError, ValueError):
+            pass
+    return min(candidates) if candidates else -1.0
 
 
 class OutputFormat(str, Enum):
