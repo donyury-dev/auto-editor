@@ -137,6 +137,26 @@ class BuildSubtitlesStep(PipelineStep):
         target_w, target_h = resolve_target_resolution(
             ctx.settings.output_format, info
         )
+        # Cenas de layout já têm painel + palavra sincronizada (como no
+        # vídeo modelo): a legenda embaixo atravessaria o card — remove
+        # as falas dentro dessas cenas da legenda.
+        transcript = ctx.transcript
+        plan = ctx.edit_plan
+        if plan is not None and plan.layouts:
+            ranges = [
+                (plan.remap_time(sc.start), plan.remap_time(sc.end))
+                for sc in plan.layouts
+            ]
+            kept = [
+                w for w in transcript.words
+                if not any(w.end > s and w.start < e for s, e in ranges)
+            ]
+            if kept and len(kept) < len(transcript.words):
+                transcript = replace(
+                    transcript,
+                    words=kept,
+                    duration=kept[-1].end,
+                )
         # Posição vertical: % da altura a partir da base, configurável pelo
         # usuário (sobrepõe as margens padrão do preset).
         pct = max(1, min(95, ctx.settings.caption_vertical_position))
@@ -157,7 +177,7 @@ class BuildSubtitlesStep(PipelineStep):
             context_lines=ctx.settings.caption_context_lines,
         )
         ctx.ass_path = ctx.work_dir / "captions.ass"
-        engine.write_ass(ctx.transcript, ctx.ass_path, target_w, target_h)
+        engine.write_ass(transcript, ctx.ass_path, target_w, target_h)
         progress(1.0, "legendas geradas")
 
 
@@ -484,6 +504,22 @@ class ApplyIllustrationsStep(PipelineStep):
         approved_callouts = [
             m for m in ctx.illustrations
             if m.kind == "callout"
+        ]
+        # Cenas de layout têm card/painel próprios: overlays grandes queimados
+        # antes do layout aparecem DUPLICADOS dentro do card (o recorte pega o
+        # call-out já queimado). Mantém só as keywords (palavra sincronizada,
+        # como no vídeo modelo).
+        layout_ranges = [
+            (sc.start, sc.end)
+            for sc in (ctx.edit_plan.layouts if ctx.edit_plan else [])
+        ]
+
+        def _in_layout(m) -> bool:
+            return any(m.start < e and s < m.end for s, e in layout_ranges)
+
+        approved_images = [m for m in approved_images if not _in_layout(m)]
+        approved_callouts = [
+            m for m in approved_callouts if not _in_layout(m)
         ]
         plan = ctx.edit_plan
         source = ctx.edited_path or ctx.input_path

@@ -28,6 +28,9 @@ _MASK_INPUT = 320
 _MEAN = (0.485, 0.456, 0.406)
 _STD = (0.229, 0.224, 0.225)
 _FPS = 30.0  # extração e recolocação em 30 fps fixo
+# Cobertura média da pessoa no quadro acima da qual a palavra fica na
+# frente (close de webcam: overlay esconderia o texto por completo).
+PERSON_COVER_MAX = 0.55
 
 
 def model_path() -> Path:
@@ -156,6 +159,7 @@ def person_overlay_segments(
                 report(f"trecho {i + 1}/{len(segs)} vazio")
                 continue
             prev_alpha = None
+            seg_alpha_mean = None
             for j, fp in enumerate(frames, start=1):
                 img = Image.open(fp).convert("RGB")
                 # Reuso temporal: a pessoa se move pouco entre quadros
@@ -166,6 +170,8 @@ def person_overlay_segments(
                     prev_alpha = a
                 else:
                     a = prev_alpha
+                if seg_alpha_mean is None:
+                    seg_alpha_mean = float(a.mean())
                 rgba = img.convert("RGBA")
                 rgba.putalpha(Image.fromarray((a * 255).astype("uint8")))
                 rgba.save(person_dir / f"person_{j:05d}.png")
@@ -174,6 +180,19 @@ def person_overlay_segments(
                         f"separando você do fundo (trecho {i + 1}/{len(segs)}, "
                         f"quadro {j}/{len(frames)})…"
                     )
+            # Close de webcam: a pessoa cobre o quadro quase inteiro e o
+            # overlay a recolocando por cima ESCONDE a palavra. Nesse caso
+            # o texto fica NA FRENTE (como no vídeo modelo, onde a palavra
+            # aparece sobre o corpo do apresentador) — trecho descartado.
+            if seg_alpha_mean is not None and seg_alpha_mean > PERSON_COVER_MAX:
+                logger.info(
+                    "Pessoa cobre %.0f%% do quadro no trecho %.1fs; "
+                    "palavra na frente.",
+                    seg_alpha_mean * 100, s,
+                )
+                done_duration += e - s
+                report(f"trecho {i + 1}/{len(segs)}: palavra na frente")
+                continue
             results.append((s, e, person_dir))
             done_duration += e - s
             report(f"trecho {i + 1}/{len(segs)} separado")

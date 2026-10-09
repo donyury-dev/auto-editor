@@ -95,6 +95,19 @@ def pick_layouts(words: list, duration: float) -> list[LayoutScene]:
             continue
         candidates.append(_Candidate(start, end, score=len(hit) + len(words) and i, trigger_idx=i))
 
+    # Fallback: nenhum gatilho na fala (comum em vídeos de opinião).
+    # A cena de layout é a cara do vídeo modelo — usa a(s) frase(s) mais
+    # longa(s) como momento de explicação.
+    if not candidates:
+        step = max(1, len(words) // 24)
+        for i in range(0, len(words), step):
+            start, end = _sentence_bounds(words, i, duration)
+            if end - start < MIN_LAYOUT_S:
+                continue
+            candidates.append(
+                _Candidate(start, end, score=int(end - start), trigger_idx=i)
+            )
+
     # melhores primeiro (gatilho mais "conceitual" = frase mais longa)
     candidates.sort(key=lambda c: (-(c.end - c.start)))
     chosen: list[_Candidate] = []
@@ -143,7 +156,11 @@ def _render_scene_pngs(
     from PIL import Image, ImageDraw, ImageFont
 
     gap = int(play_w * 0.03)
-    card_w = int(play_w * 0.44)
+    # Card ~9:16 na metade de baixo (como no vídeo modelo): altura ≈ largura
+    # * 16/9 garante que o vídeo entre sem zoom — cabeça e ombros visíveis.
+    card_w = int(play_w * 0.46)
+    card_h = int(card_w * 16 / 9)
+    card_y = play_h - card_h - int(play_h * 0.05)
     card_x = (play_w - card_w - gap) if sc.side == "right" else gap
     panel_x = gap if sc.side == "right" else card_w + gap * 2
     panel_w = play_w - card_w - gap * 3
@@ -162,8 +179,8 @@ def _render_scene_pngs(
         d.line([(0, y), (play_w, y)], fill=grid_rgb, width=2)
 
     # painel é uma camada própria para poder deslizar com fade no render
-    panel_y = int(play_h * 0.18)
-    panel_h = int(play_h * 0.5)
+    panel_y = int(play_h * 0.05)
+    panel_h = int(play_h * 0.40)
     panel = Image.new("RGBA", (play_w, play_h), (0, 0, 0, 0))
     dp = ImageDraw.Draw(panel)
     dp.rounded_rectangle(
@@ -189,7 +206,7 @@ def _render_scene_pngs(
     )
     # Cartões dos passos (até 3). Cada um vira uma camada própria para que
     # o render revele a explicação progressivamente.
-    step_size = int(play_w * 0.036)
+    step_size = int(play_w * 0.030)
     try:
         f_step = ImageFont.truetype(
             str(fonts_dir / "Poppins-ExtraBold.ttf"), step_size
@@ -198,12 +215,12 @@ def _render_scene_pngs(
         f_step = ImageFont.truetype(str(fonts_dir / "Anton-Regular.ttf"), step_size)
     step_paths: list[str] = []
     for j, s in enumerate(sc.steps[:3]):
-        cy = panel_y + int(play_h * 0.12) + j * int(play_h * 0.115)
+        cy = panel_y + int(play_h * 0.10) + j * int(play_h * 0.085)
         step = Image.new("RGBA", (play_w, play_h), (0, 0, 0, 0))
         ds = ImageDraw.Draw(step)
         ds.rounded_rectangle(
             [panel_x + gap // 2, cy, panel_x + panel_w - gap // 2,
-             cy + int(play_h * 0.095)],
+             cy + int(play_h * 0.070)],
             radius=int(play_w * 0.015),
             fill=accent + (40,),
             outline=accent,
@@ -214,12 +231,12 @@ def _render_scene_pngs(
         text_x = panel_x + gap
         max_text_w = panel_w - gap * 2
         if img_path and Path(img_path).exists():
-            side_px = int(play_h * 0.075)
+            side_px = int(play_h * 0.055)
             try:
                 icon = Image.open(img_path).convert("RGBA")
                 icon.thumbnail((side_px, side_px))
                 ix = panel_x + panel_w - gap // 2 - side_px - int(gap * 0.4)
-                iy = cy + (int(play_h * 0.095) - icon.height) // 2
+                iy = cy + (int(play_h * 0.070) - icon.height) // 2
                 step.alpha_composite(icon, (max(0, ix), max(0, iy)))
                 # texto não invade o ícone: reduz a largura disponível
                 max_text_w = ix - (panel_x + gap) - int(gap * 0.4)
@@ -235,13 +252,13 @@ def _render_scene_pngs(
                     break
                 line1 = cand
             line2 = s[len(line1):].strip()
-            ty = cy + int(play_h * 0.012)
+            ty = cy + int(play_h * 0.006)
             ds.text((text_x, ty), line1, font=f_step, fill=(255, 255, 255))
-            ds.text((text_x, ty + int(play_h * 0.038)), line2,
+            ds.text((text_x, ty + int(play_h * 0.028)), line2,
                     font=f_step, fill=(255, 255, 255))
         else:
             ds.text(
-                (text_x, cy + int(play_h * 0.022)),
+                (text_x, cy + int(play_h * 0.014)),
                 s, font=f_step, fill=(255, 255, 255),
             )
         step_path = f"{out_base}_step{j}.png"
@@ -250,14 +267,16 @@ def _render_scene_pngs(
 
     # buraco transparente onde entra o vídeo do card
     hole = int(max(4, play_w // 240))
-    d.rectangle([card_x + hole, 0, card_x + card_w - hole, play_h],
+    d.rectangle([card_x + hole, card_y + hole,
+                 card_x + card_w - hole, card_y + card_h - hole],
                 fill=(0, 0, 0, 0))
 
-    # borda arredondada do card (segunda camada, por cima do vídeo)
-    frame = Image.new("RGBA", (play_w, play_h), (0, 0, 0, 0))
+    # borda arredondada do card: PNG do TAMANHO do card (canto em 0,0) —
+    # o overlay posiciona com x animado + card_y (evita offset duplo)
+    frame = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
     df = ImageDraw.Draw(frame)
     df.rounded_rectangle(
-        [card_x, 0, card_x + card_w, play_h - 1],
+        [0, 0, card_w - 1, card_h - 1],
         radius=int(play_w * 0.03),
         outline=accent,
         width=max(4, play_w // 240),
@@ -269,6 +288,8 @@ def _render_scene_pngs(
     return {
         "card_x": card_x,
         "card_w": card_w,
+        "card_y": card_y,
+        "card_h": card_h,
         "gap": gap,
         "panel_x": panel_x,
         "panel_w": panel_w,
@@ -315,6 +336,7 @@ def apply_layouts(
             sc, play_w, play_h, Path(fonts_dir), str(tmp / f"lay{i}")
         )
         card_x, card_w = geo["card_x"], geo["card_w"]
+        card_y, card_h = geo["card_y"], geo["card_h"]
         base_idx = len(inputs) // 2
         inputs += ["-i", f"{tmp / ('lay%d_bg.png' % i)}"]
         panel_idx = len(inputs) // 2
@@ -327,10 +349,12 @@ def apply_layouts(
         chains.append(
             f"[main{i}][{base_idx}:v]overlay=0:0:enable='{en}'[mb{i}]"
         )
-        # 2) vídeo original recortado na proporção do card: o apresentador
+        # 2) vídeo original escalado para o card (cabe no card sem zoom:
+        #    cabeça + ombros visíveis) e recortado no centro; o apresentador
         #    "sai do centro" deslizando até a posição final (0.6s, ease-out)
         chains.append(
-            f"[src{i}]crop=w={card_w}:h={play_h}:x=(iw-{card_w})/2:y=0[cv{i}]"
+            f"[src{i}]scale={card_w}:{card_h}:force_original_aspect_ratio="
+            f"increase,crop={card_w}:{card_h}[cv{i}]"
         )
         slide_dur = 0.6
         # ease-out quadrático: x(t) = final + (inicial-final)*(1-p)^2
@@ -339,7 +363,8 @@ def apply_layouts(
             f"/{slide_dur}),2)*({geo['center_x']}-{card_x})'"
         )
         chains.append(
-            f"[mb{i}][cv{i}]overlay=x={card_x_expr}:0:enable='{en}'[mc{i}]"
+            f"[mb{i}][cv{i}]overlay=x={card_x_expr}:{card_y}:"
+            f"enable='{en}'[mc{i}]"
         )
         # 3) borda arredondada do card, acompanhando a posição
         frame_x_expr = (
@@ -347,7 +372,7 @@ def apply_layouts(
             f"/{slide_dur}),2)*({geo['center_x']}-{card_x})'"
         )
         chains.append(
-            f"[mc{i}][{frame_idx}:v]overlay=x={frame_x_expr}:0:"
+            f"[mc{i}][{frame_idx}:v]overlay=x={frame_x_expr}:{card_y}:"
             f"enable='{en}'[mf{i}]"
         )
         # 4) painel desliza do lado de fora + fade de entrada (0.5s)
@@ -361,8 +386,7 @@ def apply_layouts(
             f"'{panel_dir}({p_in}*{int(play_w * 0.12)})'"
         )
         chains.append(
-            f"[{panel_idx}:v]format=rgba,"
-            f"fade=t=in:st={sc.start:.3f}:d=0.5:alpha=1[pf{i}]"
+            f"[{panel_idx}:v]format=rgba[pf{i}]"
         )
         chains.append(
             f"[mf{i}][pf{i}]overlay=x={panel_x_expr}:0:enable='{en}'[mp{i}]"
