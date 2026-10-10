@@ -16,12 +16,15 @@ import threading
 import time
 import uuid
 import os
+import urllib.error
+import urllib.request
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlencode
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -49,6 +52,110 @@ PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
 app = FastAPI(title="Auto Editor Web")
+
+_EDITOR_SESSIONS: dict[str, datetime] = {}
+_KALBIX_SUPABASE_URL = os.getenv(
+    "KALBIX_SUPABASE_URL",
+    "https://supabase-api-prod.verdent.ai/p/p3ea2719cae00eab193dc",
+).rstrip("/")
+_KALBIX_SUPABASE_ANON_KEY = os.getenv(
+    "KALBIX_SUPABASE_ANON_KEY",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoyMTA2NjY2OTM5LCJpYXQiOjE3OTEwNDc3MzksImlzcyI6InN1cGFiYXNlIiwicHJvamVjdF9yZWYiOiJwM2VhMjcxOWNhZTAwZWFiMTkzZGMiLCJyb2xlIjoiYW5vbiJ9.ylc6I6mc6k-lQwtHTxzTHRSB7c5fu0Cf2eOJchVS6ys",
+)
+_OPEN_API_PATHS = (
+    "/api/access",
+    "/api/health",
+    "/api/debug/",
+    "/api/public-video/",
+    "/api/instagram/oauth/",
+)
+
+
+def _editor_access_allowed(access: dict[str, Any] | None) -> bool:
+    if not access or access.get("manual_revoked"):
+        return False
+    if access.get("plan") == "full" or access.get("manual_grant"):
+        return True
+    included_until = access.get("included_until")
+    if not included_until:
+        return False
+    try:
+        return date.fromisoformat(str(included_until)[:10]) >= date.today()
+    except ValueError:
+        return False
+
+
+def _supabase_get(path: str, access_token: str) -> Any:
+    req = urllib.request.Request(
+        f"{_KALBIX_SUPABASE_URL}{path}",
+        headers={
+            "apikey": _KALBIX_SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=8) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _validate_editor_token(access_token: str) -> bool:
+    if not access_token:
+        return False
+    try:
+        user = _supabase_get("/auth/v1/user", access_token)
+        user_id = user.get("id")
+        if not user_id:
+            return False
+        profiles = _supabase_get(
+            f"/rest/v1/profiles?select=tenant_id&user_id=eq.{user_id}&limit=1",
+            access_token,
+        )
+        tenant_id = profiles[0].get("tenant_id") if profiles else None
+        if not tenant_id:
+            return False
+        accesses = _supabase_get(
+            f"/rest/v1/editor_access?select=plan,included_until,manual_grant,manual_revoked"
+            f"&tenant_id=eq.{tenant_id}&limit=1",
+            access_token,
+        )
+        return _editor_access_allowed(accesses[0] if accesses else None)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning("Falha ao validar acesso do editor: %s", exc)
+        return False
+
+
+@app.middleware("http")
+async def require_editor_access(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or any(path.startswith(p) for p in _OPEN_API_PATHS):
+        return await call_next(request)
+
+    session = request.cookies.get("kalbix_editor_session", "")
+    expires = _EDITOR_SESSIONS.get(session)
+    if not session or not expires or expires <= datetime.now(timezone.utc):
+        return JSONResponse({"error": "Acesso ao editor não autorizado."}, status_code=403)
+    return await call_next(request)
+
+
+@app.get("/api/access")
+def editor_access(request: Request, access_token: str = ""):
+    session = request.cookies.get("kalbix_editor_session", "")
+    if session and _EDITOR_SESSIONS.get(session, datetime.min.replace(tzinfo=timezone.utc)) > datetime.now(timezone.utc):
+        return {"allowed": True}
+    if not _validate_editor_token(access_token):
+        raise HTTPException(403, "Seu acesso ao editor não está liberado pelo administrador.")
+    session = secrets.token_urlsafe(32)
+    _EDITOR_SESSIONS[session] = datetime.now(timezone.utc) + timedelta(hours=12)
+    response = JSONResponse({"allowed": True})
+    response.set_cookie(
+        "kalbix_editor_session",
+        session,
+        max_age=43200,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+    return response
 
 
 # ----------------------------------------------------------------------

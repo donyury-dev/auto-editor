@@ -19,7 +19,7 @@ import InstagramPublishModal from "./components/InstagramPublishModal";
 type Screen = "home" | "busy" | "editor";
 type MobileTab = "preview" | "edit" | "tools";
 
-export default function App() {
+function EditorApp() {
   const [screen, setScreen] = useState<Screen>("home");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [progress, setProgress] = useState({ overall: 0, step: "", msg: "" });
@@ -759,4 +759,41 @@ export default function App() {
       )}
     </div>
   );
+}
+
+export default function App() {
+  const [accessState, setAccessState] = useState<"checking" | "allowed" | "denied">("checking");
+  const [accessMessage, setAccessMessage] = useState("");
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("access_token") ?? "";
+    fetch(`/api/access${token ? `?access_token=${encodeURIComponent(token)}` : ""}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Acesso não liberado.");
+        }
+        setAccessState("allowed");
+      })
+      .catch((err) => {
+        setAccessMessage(err instanceof Error ? err.message : "Acesso não liberado.");
+        setAccessState("denied");
+      });
+  }, []);
+
+  if (accessState === "checking") {
+    return <div className="home"><div className="home-card"><p>Verificando acesso…</p></div></div>;
+  }
+  if (accessState === "denied") {
+    return (
+      <div className="home">
+        <div className="home-card">
+          <h1>Acesso ao editor bloqueado</h1>
+          <p className="subtitle">{accessMessage}</p>
+          <p className="hint">Peça ao administrador da plataforma para liberar o Editor de Vídeo no painel central.</p>
+        </div>
+      </div>
+    );
+  }
+  return <EditorApp />;
 }
