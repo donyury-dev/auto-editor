@@ -16,6 +16,9 @@ import requests
 logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
+# Base usada por tokens emitidos pelo login direto do Instagram
+# (caso de uso "API do Instagram com login do Instagram")
+INSTAGRAM_GRAPH_BASE = "https://graph.instagram.com/v21.0"
 
 
 @dataclass
@@ -96,6 +99,32 @@ def connect_account(access_token: str) -> InstagramAccount:
     )
 
 
+def connect_account_instagram(access_token: str) -> InstagramAccount:
+    """Descobre a conta Instagram a partir de um token do login direto.
+
+    Usado no fluxo "API do Instagram com login do Instagram", onde o
+    token é emitido pelo próprio Instagram (graph.instagram.com) e não
+    há necessidade de Página do Facebook.
+    """
+    me_resp = requests.get(
+        f"{INSTAGRAM_GRAPH_BASE}/me",
+        params={"access_token": access_token, "fields": "user_id,username"},
+        timeout=30,
+    )
+    if not me_resp.ok:
+        _raise_for_error(me_resp)
+    data = me_resp.json()
+    ig_user_id = str(data.get("user_id") or data.get("id") or "")
+    if not ig_user_id:
+        raise InstagramError("Instagram não retornou o ID da conta conectada.")
+    return InstagramAccount(
+        ig_user_id=ig_user_id,
+        username=data.get("username", ""),
+        page_id="",
+        page_name="",
+    )
+
+
 def publish_video(
     ig_user_id: str,
     video_url: str,
@@ -105,6 +134,7 @@ def publish_video(
     cover_url: Optional[str] = None,
     share_to_feed: bool = True,
     timeout_seconds: float = 180.0,
+    graph_base: str = GRAPH_BASE,
 ) -> dict:
     """Publica um vídeo no Instagram.
 
@@ -130,7 +160,7 @@ def publish_video(
 
     # 1. Cria o container
     create_resp = requests.post(
-        f"{GRAPH_BASE}/{ig_user_id}/media",
+        f"{graph_base}/{ig_user_id}/media",
         data=params,
         timeout=60,
     )
@@ -147,7 +177,7 @@ def publish_video(
     while status == "IN_PROGRESS" and time.time() - start < timeout_seconds:
         time.sleep(5)
         status_resp = requests.get(
-            f"{GRAPH_BASE}/{creation_id}",
+            f"{graph_base}/{creation_id}",
             params={"access_token": access_token, "fields": "status_code"},
             timeout=30,
         )
@@ -164,7 +194,7 @@ def publish_video(
 
     # 3. Publica
     publish_resp = requests.post(
-        f"{GRAPH_BASE}/{ig_user_id}/media_publish",
+        f"{graph_base}/{ig_user_id}/media_publish",
         data={"creation_id": creation_id, "access_token": access_token},
         timeout=60,
     )

@@ -114,6 +114,7 @@ export const api = {
       ig_user_id: string;
       media_type: string;
       caption: string;
+      token_kind: string;
     }
   ) =>
     fetch(`/api/projects/${id}/instagram/publish`, {

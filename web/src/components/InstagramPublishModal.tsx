@@ -18,6 +18,9 @@ export default function InstagramPublishModal({
   const [token, setToken] = useState("");
   const [username, setUsername] = useState("");
   const [igUserId, setIgUserId] = useState("");
+  const [tokenKind, setTokenKind] = useState<"instagram" | "facebook">(
+    "facebook"
+  );
   const [mediaType, setMediaType] = useState<"REELS" | "STORIES" | "VIDEO">(
     "REELS"
   );
@@ -44,6 +47,7 @@ export default function InstagramPublishModal({
         setToken(event.data.access_token);
         setUsername(event.data.username);
         setIgUserId(event.data.ig_user_id);
+        setTokenKind(event.data.token_kind === "instagram" ? "instagram" : "facebook");
         setStep("publish");
       } else if (event.data?.type === "instagram-oauth-error") {
         setError(event.data.message || "Não foi possível conectar a conta.");
@@ -78,6 +82,7 @@ export default function InstagramPublishModal({
         ig_user_id: igUserId,
         media_type: mediaType,
         caption,
+        token_kind: tokenKind,
       });
       setPostUrl(res.permalink || "");
       setStep("published");

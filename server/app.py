@@ -214,6 +214,7 @@ class InstagramPublish(BaseModel):
     ig_user_id: str
     media_type: str  # REELS, STORIES, VIDEO
     caption: str
+    token_kind: str = "facebook"  # "instagram" (login direto) ou "facebook"
 
 
 # Gerenciador global de provedores: a configuração (API key, modelo,
@@ -954,22 +955,45 @@ def get_caption(project_id: str) -> dict:
 
 @app.get("/api/instagram/oauth/start")
 def instagram_oauth_start() -> dict:
-    """Cria o link seguro de login do Meta para conectar o Instagram."""
-    app_id = os.environ.get("META_APP_ID", "").strip()
-    if not app_id:
+    """Cria o link seguro de login para conectar o Instagram.
+
+    Prioriza o fluxo "API do Instagram com login do Instagram"
+    (INSTAGRAM_APP_ID); sem ele, cai para o login via Facebook/Meta.
+    """
+    ig_app_id = os.environ.get("INSTAGRAM_APP_ID", "").strip()
+    meta_app_id = os.environ.get("META_APP_ID", "").strip()
+    if not ig_app_id and not meta_app_id:
         raise HTTPException(
             503,
             "Login automático ainda não foi configurado pelo administrador "
-            "(META_APP_ID). Use o modo alternativo ou avise o administrador.",
+            "(INSTAGRAM_APP_ID ou META_APP_ID). Use o modo alternativo ou "
+            "avise o administrador.",
         )
     from config.settings import get_public_base_url
 
     state = secrets.token_urlsafe(24)
     _INSTAGRAM_OAUTH_STATES.add(state)
     redirect_uri = f"{get_public_base_url()}/api/instagram/oauth/callback"
+
+    if ig_app_id:
+        query = urlencode(
+            {
+                "client_id": ig_app_id,
+                "redirect_uri": redirect_uri,
+                "state": state,
+                "scope": "instagram_business_basic,instagram_business_content_publish",
+                "response_type": "code",
+            }
+        )
+        return {
+            "url": f"https://api.instagram.com/oauth/authorize?{query}",
+            "redirect_uri": redirect_uri,
+            "flow": "instagram",
+        }
+
     query = urlencode(
         {
-            "client_id": app_id,
+            "client_id": meta_app_id,
             "redirect_uri": redirect_uri,
             "state": state,
             "scope": "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement",
@@ -979,12 +1003,13 @@ def instagram_oauth_start() -> dict:
     return {
         "url": f"https://www.facebook.com/v20.0/dialog/oauth?{query}",
         "redirect_uri": redirect_uri,
+        "flow": "facebook",
     }
 
 
 @app.get("/api/instagram/oauth/callback", response_class=HTMLResponse)
 def instagram_oauth_callback(code: str = "", state: str = "", error: str = ""):
-    """Troca o código do Meta e devolve o token à janela que iniciou o login."""
+    """Troca o código do login e devolve o token à janela que iniciou."""
     if state not in _INSTAGRAM_OAUTH_STATES:
         return HTMLResponse("Login inválido ou expirado.", status_code=400)
     _INSTAGRAM_OAUTH_STATES.discard(state)
@@ -993,35 +1018,86 @@ def instagram_oauth_callback(code: str = "", state: str = "", error: str = ""):
             "<script>window.opener?.postMessage({type:'instagram-oauth-error',"
             "message:'Login cancelado.'}, '*'); window.close();</script>"
         )
-    app_id = os.environ.get("META_APP_ID", "").strip()
-    app_secret = os.environ.get("META_APP_SECRET", "").strip()
-    if not app_id or not app_secret:
-        return HTMLResponse("Login automático não configurado.", status_code=503)
+    ig_app_id = os.environ.get("INSTAGRAM_APP_ID", "").strip()
+    ig_app_secret = os.environ.get("INSTAGRAM_APP_SECRET", "").strip()
+    use_instagram_flow = bool(ig_app_id and ig_app_secret)
+    if use_instagram_flow:
+        meta_app_id = meta_secret = ""
+    else:
+        meta_app_id = os.environ.get("META_APP_ID", "").strip()
+        meta_secret = os.environ.get("META_APP_SECRET", "").strip()
+        if not meta_app_id or not meta_secret:
+            return HTMLResponse("Login automático não configurado.", status_code=503)
+
     from config.settings import get_public_base_url
-    from social.instagram import InstagramError, connect_account
+    from social.instagram import (
+        InstagramError,
+        connect_account,
+        connect_account_instagram,
+    )
     import requests
 
     redirect_uri = f"{get_public_base_url()}/api/instagram/oauth/callback"
     try:
-        response = requests.get(
-            "https://graph.facebook.com/v20.0/oauth/access_token",
-            params={
-                "client_id": app_id,
-                "client_secret": app_secret,
-                "redirect_uri": redirect_uri,
-                "code": code,
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
-        access_token = response.json()["access_token"]
-        account = connect_account(access_token)
+        if use_instagram_flow:
+            # Fluxo do login direto do Instagram
+            response = requests.post(
+                "https://api.instagram.com/oauth/access_token",
+                data={
+                    "client_id": ig_app_id,
+                    "client_secret": ig_app_secret,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            data = response.json()
+            access_token = data["access_token"]
+            ig_user_id = str(data.get("user_id", ""))
+
+            # Troca por token de longa duração (60 dias)
+            long_resp = requests.get(
+                "https://graph.instagram.com/access_token",
+                params={
+                    "grant_type": "ig_exchange_token",
+                    "client_secret": ig_app_secret,
+                    "access_token": access_token,
+                },
+                timeout=20,
+            )
+            if long_resp.ok:
+                access_token = long_resp.json().get("access_token", access_token)
+
+            account = connect_account_instagram(access_token)
+            if not account.ig_user_id:
+                account.ig_user_id = ig_user_id
+            token_kind = "instagram"
+        else:
+            # Fluxo via Facebook/Meta (alternativo)
+            response = requests.get(
+                "https://graph.facebook.com/v20.0/oauth/access_token",
+                params={
+                    "client_id": meta_app_id,
+                    "client_secret": meta_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            access_token = response.json()["access_token"]
+            account = connect_account(access_token)
+            token_kind = "facebook"
+
         payload = json.dumps(
             {
                 "type": "instagram-oauth-success",
                 "access_token": access_token,
                 "ig_user_id": account.ig_user_id,
                 "username": account.username,
+                "token_kind": token_kind,
             }
         )
         return HTMLResponse(
@@ -1056,7 +1132,12 @@ def instagram_connect(body: InstagramConnect) -> dict:
 @app.post("/api/projects/{project_id}/instagram/publish")
 def instagram_publish(project_id: str, body: InstagramPublish) -> dict:
     """Publica o vídeo renderizado no Instagram (Reels/Story/Feed)."""
-    from social.instagram import InstagramError, publish_video
+    from social.instagram import (
+        InstagramError,
+        publish_video,
+        GRAPH_BASE,
+        INSTAGRAM_GRAPH_BASE,
+    )
 
     state = PROJECTS.get(project_id)
     if state is None:
@@ -1077,6 +1158,11 @@ def instagram_publish(project_id: str, body: InstagramPublish) -> dict:
             caption=body.caption,
             media_type=body.media_type,
             access_token=body.access_token,
+            graph_base=(
+                INSTAGRAM_GRAPH_BASE
+                if body.token_kind == "instagram"
+                else GRAPH_BASE
+            ),
         )
         return {
             "ok": True,
