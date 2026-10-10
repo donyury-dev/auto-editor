@@ -632,11 +632,53 @@ def _suggest_step_images(pack_manager, ctx) -> None:
             sc.step_images = images
 
 
+def _diag_tick(
+    phase: str, project_id: str, overall: float, step: str, msg: str
+) -> None:
+    """Registra o último ponto de progresso + RAM em arquivo.
+
+    Se o processo for morto por falta de memória (OOM kill), o arquivo
+    fica parado exatamente no ponto da morte — permite diagnosticar a
+    etapa que estourou sem precisar dos logs do provedor.
+    """
+    rss_mb = None
+    try:
+        with open("/proc/self/statm") as f:
+            rss_mb = int(f.read().split()[1]) * 4096 / 1_000_000
+    except Exception:
+        pass
+    try:
+        (DATA_DIR / "diag_last.json").write_text(
+            json.dumps(
+                {
+                    "phase": phase,
+                    "project": project_id,
+                    "step": step,
+                    "msg": msg,
+                    "overall": round(overall, 3),
+                    "rss_mb": round(rss_mb, 1) if rss_mb else None,
+                },
+                ensure_ascii=False,
+            )
+        )
+    except Exception:
+        pass
+    logger.info(
+        "[diag] %s | %s | %.0f%% | %.1f MB | %s",
+        phase,
+        step,
+        overall * 100,
+        rss_mb or 0,
+        msg,
+    )
+
+
 def _analyze_worker(state: ProjectState) -> None:
     state.status = "analyzing"
     state.emit("status", status=state.status)
 
     def progress(overall: float, step: str, msg: str) -> None:
+        _diag_tick("analise", state.id, overall, step, msg)
         state.emit_progress(overall, step, msg)
 
     try:
@@ -666,6 +708,7 @@ def _render_worker(state: ProjectState) -> None:
     state.emit("status", status=state.status)
 
     def progress(overall: float, step: str, msg: str) -> None:
+        _diag_tick("render", state.id, overall, step, msg)
         state.emit_progress(overall, step, msg)
 
     try:
@@ -693,15 +736,27 @@ def _render_worker(state: ProjectState) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
+    import os
+
     from core.video_processor import low_ram_mode
     from config.settings import _detect_ram_gb
 
     return {
         "ok": True,
         "version": "2-light",
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "")[:7],
         "low_ram_mode": low_ram_mode(),
         "ram_gb": round(_detect_ram_gb(), 2),
     }
+
+
+@app.get("/api/debug/last-diag")
+def last_diag() -> dict:
+    """Último ponto de progresso + RAM antes de uma queda do processo."""
+    try:
+        return json.loads((DATA_DIR / "diag_last.json").read_text())
+    except Exception:
+        return {"ok": False, "detail": "nenhum diagnóstico registrado ainda"}
 
 
 @app.post("/api/projects")

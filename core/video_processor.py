@@ -524,7 +524,14 @@ class VideoProcessor:
                 "[aout]",
             ]
         cmd += [
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-c:v", "libx264",
+            # Modo leve: ultrafast + 1 thread. Sem limite, o x264 abre uma
+            # thread por núcleo VISÍVEL (mesmo com CPU limitada por cgroup)
+            # e cada uma aloca buffers de frame; em 512 MB isso mata o
+            # processo justamente na etapa de cortes (~40-50% da barra).
+            "-preset", "ultrafast" if low_ram_mode() else "fast",
+            "-threads", "1" if low_ram_mode() else "0",
+            "-crf", "23" if low_ram_mode() else "20",
             "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k",
             "-movflags", "+faststart",
