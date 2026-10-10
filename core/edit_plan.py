@@ -154,6 +154,61 @@ class LayoutScene:
 
 
 @dataclass
+class HookBlock:
+    """Gancho visual no início do vídeo.
+
+    Texto curto e impactante exibido sobre os primeiros segundos, com
+    estilo próprio editável pelo usuário.
+    """
+
+    id: str = "hook-1"
+    enabled: bool = False
+    text: str = ""
+    start: float = 0.0
+    end: float = 2.5
+    color: str = "#FFFFFF"
+    highlight_color: str = "#FF3B30"
+    effect: str = "pulse"
+    scale: float = 1.0
+    x: float = 0.5
+    y: float = 0.3
+    font_family: str = "Anton"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "enabled": self.enabled,
+            "text": self.text,
+            "start": round(self.start, 3),
+            "end": round(self.end, 3),
+            "color": self.color,
+            "highlight_color": self.highlight_color,
+            "effect": self.effect,
+            "scale": round(self.scale, 3),
+            "x": round(self.x, 4),
+            "y": round(self.y, 4),
+            "font_family": self.font_family,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HookBlock":
+        return cls(
+            id=str(data.get("id", "hook-1")),
+            enabled=bool(data.get("enabled", False)),
+            text=str(data.get("text", "")),
+            start=float(data.get("start", 0.0)),
+            end=float(data.get("end", 2.5)),
+            color=str(data.get("color", "#FFFFFF")),
+            highlight_color=str(data.get("highlight_color", "#FF3B30")),
+            effect=str(data.get("effect", "pulse")),
+            scale=float(data.get("scale", 1.0)),
+            x=float(data.get("x", 0.5)),
+            y=float(data.get("y", 0.3)),
+            font_family=str(data.get("font_family", "Anton")),
+        )
+
+
+@dataclass
 class EditPlan:
     """Plano completo de edição sugerido (sujeito a revisão do usuário)."""
 
@@ -161,6 +216,7 @@ class EditPlan:
     zooms: list[ZoomEffect] = field(default_factory=list)
     keywords: list[KeywordPop] = field(default_factory=list)
     layouts: list[LayoutScene] = field(default_factory=list)
+    hook: Optional[HookBlock] = None
     transition_type: str = "fade"  # aplicado nos pontos de corte
     transition_duration: float = 0.3
     source: str = "heurística local"  # quem gerou o plano
@@ -193,6 +249,7 @@ class EditPlan:
             ],
             "keywords": [k.to_dict() for k in self.keywords],
             "layouts": [l.to_dict() for l in self.layouts],
+            "hook": self.hook.to_dict() if self.hook else None,
             "transition_type": self.transition_type,
             "transition_duration": self.transition_duration,
             "source": self.source,
@@ -201,6 +258,7 @@ class EditPlan:
 
     @classmethod
     def from_dict(cls, data: dict) -> "EditPlan":
+        hook_data = data.get("hook")
         return cls(
             cuts=[
                 Cut(
@@ -231,6 +289,7 @@ class EditPlan:
                 LayoutScene.from_dict(l)
                 for l in data.get("layouts", [])
             ],
+            hook=HookBlock.from_dict(hook_data) if hook_data else None,
             transition_type=str(data.get("transition_type", "fade")),
             transition_duration=float(data.get("transition_duration", 0.3)),
             source=str(data.get("source", "heurística local")),

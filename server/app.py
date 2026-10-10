@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import secrets
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -69,6 +71,11 @@ class ProjectState:
     events: "queue.Queue[dict]" = field(default_factory=queue.Queue)
     # timeline editável (fonte de verdade pós-análise)
     timeline: dict = field(default_factory=dict)
+    # legenda + hashtags geradas para publicação social
+    caption: str = ""
+    hashtags: list[str] = field(default_factory=list)
+    # token para URL pública temporária do vídeo renderizado (usado pelo Meta)
+    public_token: str = ""
 
     def emit(self, kind: str, **data: Any) -> None:
         payload = {"kind": kind, **data}
@@ -79,6 +86,9 @@ class ProjectState:
 
 
 PROJECTS: dict[str, ProjectState] = {}
+
+# Mapeia token público -> project_id para o endpoint /api/public-video/{token}
+_PUBLIC_VIDEO_TOKENS: dict[str, str] = {}
 
 
 def _revive_projects_from_disk() -> None:
@@ -112,6 +122,8 @@ def _revive_projects_from_disk() -> None:
                 pack_manager=pack_manager,
             )
             state.timeline = data.get("timeline", {}) or {}
+            state.caption = data.get("caption", "")
+            state.hashtags = data.get("hashtags", []) or []
             if state.timeline:
                 state.status = "ready"
                 # contexto mínimo para re-renderizar sem nova análise:
@@ -169,6 +181,7 @@ class TimelineUpdate(BaseModel):
     callouts: list[dict] = []
     keywords: list[dict] = []
     layouts: list[dict] = []
+    hook: dict = {}
     music: dict = {}
     sfx: list[dict] = []
     caption_style: str = ""
@@ -183,6 +196,21 @@ class ProviderUpdate(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
     active: bool = False
+
+
+class InstagramConnect(BaseModel):
+    """Token de acesso do Meta para conectar a conta Instagram."""
+
+    access_token: str
+
+
+class InstagramPublish(BaseModel):
+    """Pedido de publicação no Instagram."""
+
+    access_token: str
+    ig_user_id: str
+    media_type: str  # REELS, STORIES, VIDEO
+    caption: str
 
 
 # Gerenciador global de provedores: a configuração (API key, modelo,
@@ -366,6 +394,24 @@ def _timeline_from_ctx(ctx: PipelineContext) -> dict:
         "callouts": callouts,
         "keywords": keywords,
         "layouts": layouts,
+        "hook": (
+            ctx.edit_plan.hook.to_dict()
+            if ctx.edit_plan.hook
+            else {
+                "id": "hook-1",
+                "enabled": False,
+                "text": "",
+                "start": 0,
+                "end": 2.5,
+                "color": "#FFFFFF",
+                "highlight_color": "#FF3B30",
+                "effect": "pulse",
+                "scale": 1.0,
+                "x": 0.5,
+                "y": 0.3,
+                "font_family": "Anton",
+            }
+        ),
         "caption_style": settings.caption_style,
         "caption_scale": float(getattr(settings, "caption_scale", 1.0)),
         "music": {
@@ -443,6 +489,28 @@ def _apply_timeline_to_ctx(state: ProjectState) -> None:
         ),
         duration=ctx.edit_plan.duration,
     )
+
+    # gancho editável no início do vídeo
+    hook_data = tl.get("hook")
+    if hook_data:
+        from core.edit_plan import HookBlock
+
+        ctx.edit_plan.hook = HookBlock(
+            id=str(hook_data.get("id", "hook-1")),
+            enabled=bool(hook_data.get("enabled", False)),
+            text=str(hook_data.get("text", "")),
+            start=float(hook_data.get("start", 0.0)),
+            end=float(hook_data.get("end", 2.5)),
+            color=str(hook_data.get("color", "#FFFFFF")),
+            highlight_color=str(hook_data.get("highlight_color", "#FF3B30")),
+            effect=str(hook_data.get("effect", "pulse")),
+            scale=float(hook_data.get("scale", 1.0)),
+            x=float(hook_data.get("x", 0.5)),
+            y=float(hook_data.get("y", 0.3)),
+            font_family=str(hook_data.get("font_family", "Anton")),
+        )
+    else:
+        ctx.edit_plan.hook = None
 
     # call-outs editados pelo usuário
     ctx.illustrations = [
@@ -576,6 +644,8 @@ def _save_project_json(state: ProjectState) -> None:
                 "video_path": str(state.video_path),
                 "status": state.status,
                 "timeline": state.timeline,
+                "caption": state.caption,
+                "hashtags": state.hashtags,
             },
             indent=2,
             ensure_ascii=False,
@@ -692,6 +762,24 @@ def _analyze_worker(state: ProjectState) -> None:
         ).run(ctx, progress)
         _suggest_step_images(state.pack_manager, ctx)
         state.timeline = _timeline_from_ctx(ctx)
+
+        # Gera legenda + hashtags para publicação social (grátis: heurística local)
+        if ctx.transcript is not None:
+            try:
+                from ai.caption_generator import generate_caption
+
+                generated = generate_caption(
+                    ctx.transcript.text,
+                    provider_manager=state.manager,
+                    platform="reels",
+                    language=getattr(ctx.transcript, "language", "pt"),
+                )
+                state.caption = generated.caption
+                state.hashtags = generated.hashtags
+                logger.info("Legenda gerada: %d hashtags", len(state.hashtags))
+            except Exception as exc:
+                logger.warning("Falha ao gerar legenda: %s", exc)
+
         state.status = "ready"
         state.emit("timeline", timeline=state.timeline)
     except Exception as exc:
@@ -719,6 +807,9 @@ def _render_worker(state: ProjectState) -> None:
         build_render_pipeline().run(state.ctx, progress)
         state.status = "done"
         assert state.ctx.output_path is not None
+        # Gera token para URL pública temporária (usada pelo Meta ao publicar)
+        state.public_token = secrets.token_urlsafe(24)
+        _PUBLIC_VIDEO_TOKENS[state.public_token] = state.id
         state.emit("done", output=str(state.ctx.output_path))
     except Exception as exc:
         logger.exception("Render falhou")
@@ -840,6 +931,101 @@ def get_timeline(project_id: str) -> dict:
     return {"status": state.status, "timeline": state.timeline}
 
 
+@app.get("/api/projects/{project_id}/caption")
+def get_caption(project_id: str) -> dict:
+    """Retorna a legenda + hashtags geradas para publicação social."""
+    state = PROJECTS.get(project_id)
+    if state is None:
+        raise HTTPException(404, "Projeto não encontrado.")
+    return {
+        "caption": state.caption,
+        "hashtags": state.hashtags,
+        "full_text": f"{state.caption}\n\n{' '.join(state.hashtags)}".strip(),
+    }
+
+
+# ----------------------------------------------------------------------
+# Instagram (Graph API do Meta)
+# ----------------------------------------------------------------------
+
+
+@app.post("/api/instagram/connect")
+def instagram_connect(body: InstagramConnect) -> dict:
+    """Valida o token do Meta e retorna a conta Instagram vinculada."""
+    from social.instagram import InstagramError, connect_account
+
+    try:
+        account = connect_account(body.access_token)
+        return {
+            "connected": True,
+            "ig_user_id": account.ig_user_id,
+            "username": account.username,
+            "page_name": account.page_name,
+        }
+    except InstagramError as exc:
+        raise HTTPException(400, exc.message)
+    except Exception as exc:
+        logger.exception("Falha ao conectar Instagram")
+        raise HTTPException(500, f"Erro ao conectar: {exc}")
+
+
+@app.post("/api/projects/{project_id}/instagram/publish")
+def instagram_publish(project_id: str, body: InstagramPublish) -> dict:
+    """Publica o vídeo renderizado no Instagram (Reels/Story/Feed)."""
+    from social.instagram import InstagramError, publish_video
+
+    state = PROJECTS.get(project_id)
+    if state is None:
+        raise HTTPException(404, "Projeto não encontrado.")
+    if state.status != "done" or state.ctx is None or state.ctx.output_path is None:
+        raise HTTPException(400, "Renderize o vídeo antes de publicar.")
+    if not state.public_token or state.public_token not in _PUBLIC_VIDEO_TOKENS:
+        raise HTTPException(400, "URL pública expirada. Renderize novamente.")
+
+    # URL pública que o Meta baixa (mesma origem do servidor)
+    from config.settings import get_public_base_url
+
+    video_url = f"{get_public_base_url()}/api/public-video/{state.public_token}"
+    try:
+        result = publish_video(
+            ig_user_id=body.ig_user_id,
+            video_url=video_url,
+            caption=body.caption,
+            media_type=body.media_type,
+            access_token=body.access_token,
+        )
+        return {
+            "ok": True,
+            "media_id": result.get("media_id"),
+            "permalink": result.get("permalink"),
+        }
+    except InstagramError as exc:
+        raise HTTPException(400, exc.message)
+    except Exception as exc:
+        logger.exception("Falha ao publicar no Instagram")
+        raise HTTPException(500, f"Erro ao publicar: {exc}")
+
+
+@app.get("/api/public-video/{token}")
+def public_video(token: str):
+    """Vídeo renderizado acessível por URL pública temporária.
+
+    O Meta baixa o vídeo desta URL ao criar o container de mídia.
+    O token é aleatório e regenerado a cada render.
+    """
+    project_id = _PUBLIC_VIDEO_TOKENS.get(token)
+    if project_id is None:
+        raise HTTPException(404, "Token inválido ou expirado.")
+    state = PROJECTS.get(project_id)
+    if state is None or state.ctx is None or state.ctx.output_path is None:
+        raise HTTPException(404, "Vídeo não disponível.")
+    return FileResponse(
+        state.ctx.output_path,
+        media_type="video/mp4",
+        filename=f"{project_id}.mp4",
+    )
+
+
 @app.put("/api/projects/{project_id}/timeline")
 def put_timeline(project_id: str, update: TimelineUpdate) -> dict:
     state = PROJECTS.get(project_id)
@@ -854,6 +1040,8 @@ def put_timeline(project_id: str, update: TimelineUpdate) -> dict:
     tl["callouts"] = update.callouts
     tl["keywords"] = update.keywords
     tl["layouts"] = update.layouts
+    if update.hook:
+        tl["hook"] = update.hook
     if update.music:
         tl["music"] = update.music
     tl["sfx"] = update.sfx

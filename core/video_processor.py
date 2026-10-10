@@ -244,11 +244,14 @@ class VideoProcessor:
         fmt: OutputFormat,
         progress: Optional[ProgressFn] = None,
         lut_path: Path | str | None = None,
+        hook_ass_path: Path | str | None = None,
     ) -> Path:
         """Renderiza o vídeo com legendas queimadas no formato escolhido.
 
         `lut_path` (opcional) aplica um LUT (.cube) do pack externo antes
         das legendas — a cor muda, o texto permanece legível.
+        `hook_ass_path` (opcional) aplica o gancho visual por cima das
+        legendas nos primeiros segundos.
         """
         input_path = Path(input_path)
         ass_path = Path(ass_path)
@@ -256,7 +259,12 @@ class VideoProcessor:
 
         info = self.probe(input_path)
         target_w, target_h = resolve_target_resolution(fmt, info)
-        ass_arg = self._ass_filter_arg(ass_path)
+        ass_filters = [self._ass_filter_arg(ass_path)]
+        if hook_ass_path:
+            hook_path = Path(hook_ass_path)
+            if hook_path.exists() and hook_path.stat().st_size > 0:
+                ass_filters.append(self._ass_filter_arg(hook_path))
+        ass_arg = ",".join(ass_filters)
         lut_file = self._escape_filter_path(Path(lut_path)) if lut_path else None
         filter_args = self._build_filter_args(fmt, info, ass_arg, lut_file=lut_file)
 

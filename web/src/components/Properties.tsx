@@ -6,6 +6,8 @@ import type {
   Timeline,
 } from "../types";
 
+import HookPanel from "./HookPanel";
+
 interface PropertiesProps {
   timeline: Timeline;
   selection: Selection;
@@ -31,6 +33,7 @@ export default function Properties({
         <p className="hint">
           Selecione um corte, legenda ou call-out na timeline para editar.
         </p>
+        <HookPanel timeline={timeline} onChange={onChange} />
         <TransicaoPicker timeline={timeline} onChange={onChange} />
         <CaptionStylePicker
           timeline={timeline}

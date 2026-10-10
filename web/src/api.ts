@@ -80,12 +80,44 @@ export const api = {
         callouts: timeline.callouts,
         keywords: timeline.keywords,
         layouts: timeline.layouts || [],
+        hook: timeline.hook,
         music: timeline.music,
         sfx: timeline.sfx,
         caption_style: timeline.captionStyle || "",
         caption_scale: timeline.captionScale || 0,
       }),
     }).then((r) => j<{ ok: boolean }>(r)),
+
+  caption: (id: string) =>
+    fetch(`/api/projects/${id}/caption`).then((r) =>
+      j<{ caption: string; hashtags: string[]; full_text: string }>(r)
+    ),
+
+  instagramConnect: (accessToken: string) =>
+    fetch("/api/instagram/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: accessToken }),
+    }).then((r) =>
+      j<{ connected: boolean; ig_user_id: string; username: string }>(r)
+    ),
+
+  instagramPublish: (
+    id: string,
+    body: {
+      access_token: string;
+      ig_user_id: string;
+      media_type: string;
+      caption: string;
+    }
+  ) =>
+    fetch(`/api/projects/${id}/instagram/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) =>
+      j<{ ok: boolean; media_id: string; permalink: string }>(r)
+    ),
 
   captionStyles: () =>
     fetch("/api/caption-styles").then((r) => j<{ styles: CaptionStylePreset[] }>(r)),

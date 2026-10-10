@@ -221,6 +221,21 @@ export default function Timeline({
           }}
         >
           <div className="base-clip" style={{ width: laneWidth }} />
+          {timeline.hook?.enabled && timeline.hook.end > 0 && (
+            <div
+              data-block="1"
+              className="mini-block hook"
+              style={{ left: 0, width: Math.max(18, timeline.hook.end * pxPerSec) }}
+              title={`Gancho: ${timeline.hook.text || "(sem texto)"} — clique para editar`}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                // desseleciona: painel de propriedades mostra o HookPanel
+                onSelect(null);
+              }}
+            >
+              <span className="mini-label">gancho</span>
+            </div>
+          )}
           {timeline.cuts.map((c) => {
             const d = dragBlock(c.id);
             const start = d ? d.start : c.start;

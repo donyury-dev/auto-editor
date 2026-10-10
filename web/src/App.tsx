@@ -13,6 +13,8 @@ import LibraryPanel from "./components/Library";
 import PropertiesPanel from "./components/Properties";
 import FileBrowser from "./components/FileBrowser";
 import ProviderModal from "./components/ProviderModal";
+import CaptionEditor from "./components/CaptionEditor";
+import InstagramPublishModal from "./components/InstagramPublishModal";
 
 type Screen = "home" | "busy" | "editor";
 
@@ -35,6 +37,9 @@ export default function App() {
   const [rendering, setRendering] = useState(false);
   const [renderDone, setRenderDone] = useState(false);
   const [error, setError] = useState("");
+  const [publishCaption, setPublishCaption] = useState("");
+  const [publishHashtags, setPublishHashtags] = useState("");
+  const [showPublish, setShowPublish] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const closeSSE = useRef<(() => void) | null>(null);
   const screenRef = useRef<Screen>("home");
@@ -471,11 +476,33 @@ export default function App() {
       )}
       {renderDone && (
         <div className="render-bar ok">
-          Vídeo pronto!{" "}
-          <a href={`/api/projects/${projectId}/output`} download>
-            Baixar MP4
-          </a>
+          <div className="render-done-row">
+            <span>Vídeo pronto!</span>
+            <a href={`/api/projects/${projectId}/output`} download>
+              Baixar MP4
+            </a>
+            <button
+              className="ghost"
+              onClick={() => setShowPublish(true)}
+            >
+              Publicar no Instagram
+            </button>
+          </div>
+          <CaptionEditor
+            projectId={projectId!}
+            onCaptionChange={(c, h) => {
+              setPublishCaption(c);
+              setPublishHashtags(h);
+            }}
+          />
         </div>
+      )}
+      {showPublish && projectId && (
+        <InstagramPublishModal
+          projectId={projectId}
+          initialCaption={`${publishCaption}\n\n${publishHashtags}`.trim()}
+          onClose={() => setShowPublish(false)}
+        />
       )}
       {error && <div className="render-bar fail">{error}</div>}
       {timeline?.warning && (

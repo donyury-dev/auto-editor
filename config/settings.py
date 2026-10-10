@@ -54,6 +54,21 @@ SETTINGS_PATH = CONFIG_DIR / "app_settings.json"
 VERTICAL_RESOLUTION = (1080, 1920)  # Reels / TikTok / Shorts
 HORIZONTAL_RESOLUTION = (1920, 1080)  # YouTube
 
+# URL pública base do servidor (usada para gerar links que serviços
+# externos, como o Meta/Instagram, precisam baixar). No Render usa a
+# URL do serviço; local cai para localhost.
+
+
+def get_public_base_url() -> str:
+    """URL pública do servidor, com fallback para o domínio do Render."""
+    explicit = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    service = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if service:
+        return service
+    return f"http://localhost:{os.environ.get('PORT', '8000')}"
+
 
 def resolve_whisper_model(configured: str | None = None) -> str:
     """Escolhe o modelo Whisper adequado à máquina atual.

@@ -80,6 +80,7 @@ class PipelineContext:
     )
     transcript: Optional[Transcript] = None
     ass_path: Optional[Path] = None
+    hook_ass_path: Optional[Path] = None
     rendered_path: Optional[Path] = None
     output_path: Optional[Path] = None
     # Fase 2: plano de edição (pós-revisão) e vídeo já editado
@@ -182,6 +183,21 @@ class BuildSubtitlesStep(PipelineStep):
         )
         ctx.ass_path = ctx.work_dir / "captions.ass"
         engine.write_ass(transcript, ctx.ass_path, target_w, target_h)
+
+        # Gancho visual no início do vídeo (se habilitado na timeline)
+        if ctx.edit_plan and ctx.edit_plan.hook and ctx.edit_plan.hook.enabled:
+            from core.hook_engine import HookRenderSettings, build_hook_ass
+
+            ctx.hook_ass_path = ctx.work_dir / "hook.ass"
+            build_hook_ass(
+                ctx.edit_plan.hook,
+                ctx.hook_ass_path,
+                HookRenderSettings(play_w=target_w, play_h=target_h),
+            )
+            progress(0.9, "gancho visual gerado")
+        else:
+            ctx.hook_ass_path = None
+
         progress(1.0, "legendas geradas")
 
 
@@ -1028,6 +1044,7 @@ class RenderStep(PipelineStep):
             ctx.settings.output_format,
             progress=progress,
             lut_path=lut,
+            hook_ass_path=ctx.hook_ass_path,
         )
 
 

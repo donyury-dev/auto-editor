@@ -63,6 +63,21 @@ export interface SfxBlock {
   origin?: string; // "manual" (biblioteca) | auto (cortes/zooms)
 }
 
+export interface HookBlock {
+  id: string;
+  enabled: boolean;
+  text: string;
+  start: number; // sempre 0 no início
+  end: number; // duração do gancho (ex: 2.5s)
+  color: string; // #HEX do texto
+  highlight_color: string; // #HEX de destaque
+  effect: "pulse" | "shake" | "zoom" | "bounce" | "none";
+  scale: number; // 0.5 a 3.0
+  x: number; // 0..1
+  y: number; // 0..1
+  font_family?: string;
+}
+
 export interface Timeline {
   video: {
     path: string;
@@ -77,6 +92,7 @@ export interface Timeline {
   callouts: CalloutBlock[];
   keywords: KeywordBlock[];
   layouts?: LayoutBlock[];
+  hook?: HookBlock;
   music: { path: string | null; label: string; volume: number };
   sfx: SfxBlock[];
   warning?: string | null;
