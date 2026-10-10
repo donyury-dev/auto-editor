@@ -1105,8 +1105,24 @@ def instagram_oauth_callback(code: str = "", state: str = "", error: str = ""):
         )
     except (requests.RequestException, KeyError, InstagramError) as exc:
         logger.warning("Falha no callback OAuth do Instagram: %s", exc)
-        message = json.dumps({"type": "instagram-oauth-error", "message": "Não foi possível conectar a conta."})
-        return HTMLResponse(f"<script>window.opener?.postMessage({message}, '*'); window.close();</script>")
+        detail = getattr(exc, "message", None) or str(exc)
+        message = json.dumps(
+            {"type": "instagram-oauth-error", "message": f"Não foi possível conectar a conta: {detail}"}
+        )
+        return HTMLResponse(
+            f"<p>Falha ao conectar o Instagram: {detail}</p>"
+            f"<script>window.opener?.postMessage({message}, '*');</script>"
+        )
+    except Exception as exc:
+        logger.exception("Erro inesperado no callback OAuth do Instagram")
+        detail = str(exc)
+        message = json.dumps(
+            {"type": "instagram-oauth-error", "message": f"Erro inesperado ao conectar: {detail}"}
+        )
+        return HTMLResponse(
+            f"<p>Falha ao conectar o Instagram: {detail}</p>"
+            f"<script>window.opener?.postMessage({message}, '*');</script>"
+        )
 
 
 @app.post("/api/instagram/connect")

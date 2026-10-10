@@ -108,13 +108,13 @@ def connect_account_instagram(access_token: str) -> InstagramAccount:
     """
     me_resp = requests.get(
         f"{INSTAGRAM_GRAPH_BASE}/me",
-        params={"access_token": access_token, "fields": "user_id,username"},
+        params={"access_token": access_token, "fields": "id,username"},
         timeout=30,
     )
     if not me_resp.ok:
         _raise_for_error(me_resp)
     data = me_resp.json()
-    ig_user_id = str(data.get("user_id") or data.get("id") or "")
+    ig_user_id = str(data.get("id") or data.get("user_id") or "")
     if not ig_user_id:
         raise InstagramError("Instagram não retornou o ID da conta conectada.")
     return InstagramAccount(
