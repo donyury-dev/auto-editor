@@ -343,6 +343,27 @@ class ApplyEditsStep(PipelineStep):
             progress(1.0, "nenhuma edição aprovada — usando original")
             return
 
+        from core.video_processor import low_ram_mode
+
+        if low_ram_mode():
+            # Mantém apenas os intervalos de corte. Transições e zooms
+            # exigem filtros/re-encode adicionais e não fazem parte do
+            # modo simples para servidores com 512 MB.
+            plan = replace(
+                plan,
+                zooms=[],
+                transition_type="corte",
+                transition_duration=0.0,
+                cuts=[
+                    replace(
+                        cut,
+                        transition_type="corte",
+                        transition_duration=0.0,
+                    )
+                    for cut in plan.cuts
+                ],
+            )
+
         processor = VideoProcessor()
         info = processor.probe(ctx.input_path)
         if plan.duration <= 0:
@@ -786,6 +807,13 @@ class ApplyAudioStep(PipelineStep):
         if plan is None:
             progress(1.0, "sem plano de áudio")
             return
+        # No modo leve, mantém apenas voz tratada e música opcional.
+        # SFX geram entradas extras no filter_complex e não são necessários
+        # para a edição simples.
+        from core.video_processor import low_ram_mode
+
+        if low_ram_mode():
+            plan.sfx = []
         if (
             plan.music_path is None
             and not plan.sfx
@@ -1222,6 +1250,23 @@ def build_analysis_pipeline(
 
 def build_render_pipeline() -> Pipeline:
     """Render: aplicar aprovados -> pack -> áudio -> legendas -> render -> export."""
+    # O Render Starter tem 512 MB. No modo leve, não executa etapas de
+    # overlay/re-encode que não são necessárias para o resultado principal:
+    # cortes, legenda, música e voz tratada. Isso evita que uma etapa
+    # esquecida volte a consumir memória e derrube a renderização.
+    from core.video_processor import low_ram_mode
+
+    if low_ram_mode():
+        return Pipeline(
+            [
+                ApplyEditsStep(),
+                ApplyAudioStep(),
+                BuildSubtitlesStep(),
+                RenderStep(),
+                ExportStep(),
+            ]
+        )
+
     return Pipeline(
         [
             ApplyEditsStep(),
