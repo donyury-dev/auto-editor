@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { api, type ProviderInfo } from "../api";
 
 const DESCRIPTIONS: Record<string, string> = {
+  heuristico:
+    "IA padrão (grátis). Regras locais do editor — cortes, legendas e efeitos sem gastar créditos. Ideal para testes.",
   claude:
-    "Claude (Anthropic). Direção de edição completa: cortes, transições, efeitos e destaques. Recomendado.",
+    "Claude (Anthropic). Direção de edição completa: cortes, transições, efeitos e destaques. Gasta créditos por análise.",
   openai:
-    "ChatGPT (OpenAI). Mesma direção de edição, usando modelos GPT.",
+    "ChatGPT (OpenAI). Mesma direção de edição, usando modelos GPT. Gasta créditos por análise.",
   ollama:
     "Modelo local (Ollama). Roda no seu PC, sem custo por análise — precisa do Ollama instalado.",
 };
@@ -116,7 +118,21 @@ export default function ProviderModal({ onClose, onSaved }: Props) {
           ))}
         </div>
 
-        {current && (
+        {current && current.id === "heuristico" && (
+          <div className="provider-form">
+            <button className="accent" onClick={save} disabled={saving}>
+              {saving ? "Salvando…" : "Usar a IA padrão (grátis)"}
+            </button>
+            {saved && (
+              <p className="ok-msg">
+                Pronto! As próximas análises não gastam créditos.
+              </p>
+            )}
+            {error && <p className="error">{error}</p>}
+          </div>
+        )}
+
+        {current && current.id !== "heuristico" && (
           <div className="provider-form">
             {current.requires_api_key && (
               <>

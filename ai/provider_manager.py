@@ -16,6 +16,7 @@ from typing import Optional, Type
 
 from ai.base_provider import AIProvider
 from ai.claude_provider import ClaudeProvider
+from ai.heuristic_provider import HeuristicProvider
 from ai.ollama_provider import OllamaProvider
 from ai.openai_provider import OpenAIProvider
 from config.settings import PROVIDERS_CONFIG_PATH
@@ -39,6 +40,7 @@ class ProviderManager:
     ) -> None:
         self.config_path = Path(config_path or PROVIDERS_CONFIG_PATH)
         self._providers: dict[str, Type[AIProvider]] = {}
+        self.register(HeuristicProvider)
         self.register(ClaudeProvider)
         self.register(OpenAIProvider)
         self.register(OllamaProvider)
@@ -88,7 +90,7 @@ class ProviderManager:
                     return data
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning("providers.json inválido (%s); recriando.", exc)
-        return {"active": "claude", "providers": {}}
+        return {"active": "heuristico", "providers": {}}
 
     def _save(self) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,7 +126,25 @@ class ProviderManager:
         return result
 
     def active_id(self) -> str:
-        return self._config.get("active", "claude")
+        """Provedor ativo, com segurança contra gasto acidental.
+
+        - AI_PROVIDER (variável de ambiente) fixa a escolha — útil em
+          servidores com disco efêmero (Render apaga providers.json a
+          cada reinício).
+        - Se o provedor salvo precisa de API key e nenhuma está
+          disponível, cai na heurística local (grátis) em vez de
+          insistir no pago.
+        """
+        env = os.environ.get("AI_PROVIDER", "").strip().lower()
+        if env and env in self._providers:
+            return env
+        pid = self._config.get("active", "heuristico")
+        if pid in self._providers:
+            cls = self._providers[pid]
+            if cls.requires_api_key and not self.get_api_key(pid):
+                return "heuristico"
+            return pid
+        return "heuristico"
 
     def set_active(self, provider_id: str) -> None:
         if provider_id not in self._providers:
