@@ -1430,6 +1430,75 @@ def transitions() -> dict:
 
 
 # ----------------------------------------------------------------------
+# Política de Privacidade (exigida pela Análise do Meta / App Review)
+# ----------------------------------------------------------------------
+
+_PRIVACY_HTML = """<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de Privacidade — KalBix Editor</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px;
+         margin: 0 auto; padding: 24px; color: #1a1a2e; line-height: 1.6; }
+  h1 { font-size: 1.6rem; } h2 { font-size: 1.15rem; margin-top: 1.6em; }
+  .updated { color: #666; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>Política de Privacidade — KalBix Editor</h1>
+<p class="updated">Última atualização: fevereiro de 2026</p>
+
+<h2>1. O que somos</h2>
+<p>O KalBix Editor é uma ferramenta web de edição automática de vídeos que permite
+ao usuário cortar pausas, adicionar legendas, efeitos e publicar o resultado
+diretamente em suas próprias redes sociais (Instagram, entre outras).</p>
+
+<h2>2. Dados que coletamos</h2>
+<ul>
+  <li><strong>Vídeos enviados</strong>: usados exclusivamente para gerar a edição
+  solicitada pelo usuário.</li>
+  <li><strong>Token de acesso do Instagram</strong>: quando o usuário conecta a
+  conta, recebemos um token via OAuth oficial do Instagram. Ele é usado apenas
+  para publicar o conteúdo que o próprio usuário solicitou e não é compartilhado
+  com terceiros.</li>
+  <li><strong>Legendas e textos gerados</strong>: derivados da transcrição do
+  áudio do vídeo enviado, para uso do próprio usuário na publicação.</li>
+</ul>
+
+<h2>3. Como usamos os dados</h2>
+<p>Os dados são usados somente para: (a) processar e renderizar a edição do vídeo;
+(b) publicar no Instagram o conteúdo que o usuário autorizou; (c) gerar legendas
+e hashtags sugeridas. Não vendemos, alugamos ou compartilhamos dados pessoais
+com terceiros.</p>
+
+<h2>4. Permissões do Instagram</h2>
+<p>Solicitamos as permissões <code>instagram_business_basic</code> (ler perfil
+profissional básico para identificar a conta conectada) e
+<code>instagram_business_content_publish</code> (publicar Reels, Stories e posts
+solicitados pelo usuário). Não acessamos mensagens diretas, senhas nem dados de
+seguidores.</p>
+
+<h2>5. Armazenamento e retenção</h2>
+<p>Projetos e vídeos são armazenados temporariamente em nosso servidor para
+permitir a edição e a publicação, e podem ser removidos quando o usuário exclui
+o projeto ou após período de inatividade. O token do Instagram não é gravado em
+disco no servidor.</p>
+
+<h2>6. Contato</h2>
+<p>Dúvidas sobre esta política ou solicitação de exclusão de dados:
+<strong>contato@kalbix.com</strong>.</p>
+</body>
+</html>"""
+
+
+@app.get("/politica-de-privacidade", response_class=HTMLResponse)
+def privacy_policy() -> HTMLResponse:
+    return HTMLResponse(_PRIVACY_HTML)
+
+
+# ----------------------------------------------------------------------
 # Frontend estático (web/dist), se existir
 # ----------------------------------------------------------------------
 
