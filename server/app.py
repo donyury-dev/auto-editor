@@ -693,7 +693,15 @@ def _render_worker(state: ProjectState) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True}
+    from core.video_processor import low_ram_mode
+    from config.settings import _detect_ram_gb
+
+    return {
+        "ok": True,
+        "version": "2-light",
+        "low_ram_mode": low_ram_mode(),
+        "ram_gb": round(_detect_ram_gb(), 2),
+    }
 
 
 @app.post("/api/projects")

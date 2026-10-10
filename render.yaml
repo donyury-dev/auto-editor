@@ -7,3 +7,5 @@ services:
     envVars:
       - key: WHISPER_MODEL
         value: tiny
+      - key: LOW_RAM_MODE
+        value: "1"

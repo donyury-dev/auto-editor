@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -42,11 +43,21 @@ FACE_FALLBACK_CY = 0.5
 def low_ram_mode() -> bool:
     """True em servidores com pouca memória (ex.: Render 512 MB).
 
-    No modo leve o render abre mão dos efeitos mais pesados (zoom por
-    quadro, cadeia de xfade com N entradas simultâneas, overlays de
-    imagem) e usa encoder econômico — a prioridade é COMPLETAR o vídeo
-    com bons cortes e boa legenda.
+    Ordem de decisão:
+    1. LOW_RAM_MODE=1 força o modo leve; LOW_RAM_MODE=0 desliga.
+    2. O Render define a variável RENDER em todos os serviços — planos
+       de 512 MB a 2 GB não aguentam o pipeline completo, então o modo
+       leve é o padrão lá (determinístico, não depende de leitura de
+       cgroup, que nem sempre está visível no container).
+    3. Fallback: heurística de RAM detectada (menor entre host e cgroup).
     """
+    forced = os.environ.get("LOW_RAM_MODE", "").strip()
+    if forced == "1":
+        return True
+    if forced == "0":
+        return False
+    if os.environ.get("RENDER", "").strip() not in ("", "0", "false"):
+        return True
     return 0 < _detect_ram_gb() < 1.5
 
 
