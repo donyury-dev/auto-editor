@@ -17,6 +17,7 @@ import CaptionEditor from "./components/CaptionEditor";
 import InstagramPublishModal from "./components/InstagramPublishModal";
 
 type Screen = "home" | "busy" | "editor";
+type MobileTab = "preview" | "edit" | "tools";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
@@ -41,6 +42,17 @@ export default function App() {
   const [publishHashtags, setPublishHashtags] = useState("");
   const [showPublish, setShowPublish] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [mTab, setMTab] = useState<MobileTab>("preview");
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const fn = () => setIsMobile(mq.matches);
+    mq.addEventListener("change", fn);
+    return () => mq.removeEventListener("change", fn);
+  }, []);
   const videoRef = useRef<HTMLVideoElement>(null);
   const closeSSE = useRef<(() => void) | null>(null);
   const screenRef = useRef<Screen>("home");
@@ -509,7 +521,7 @@ export default function App() {
           <span className="editor-subtitle">Revisão do seu vídeo</span>
         </div>
         <div className="spacer" />
-        <button className="ghost" onClick={() => setShowAdvanced((v) => !v)}>
+        <button className="ghost desktop-only" onClick={() => setShowAdvanced((v) => !v)}>
           {showAdvanced ? "Ocultar ferramentas" : "Mais ferramentas"}
         </button>
         <button className="accent" onClick={doRender} disabled={rendering}>
@@ -579,16 +591,32 @@ export default function App() {
         <ProviderModal onClose={() => setShowProviders(false)} />
       )}
 
-      <div className="main">
-        {showAdvanced && (
-          <LibraryPanel
-            library={library}
-            onPickMusic={pickMusic}
-            onPickSfx={pickSfx}
-            onPickTransition={pickTransition}
-            transitionType={timeline.transition.type}
-            transitionTypes={transitionTypes}
-          />
+      <div className={`main ${isMobile ? `m-${mTab}` : "desktop"}`}>
+        {(!isMobile ? showAdvanced : true) && (
+          <div className="library-wrap">
+            <LibraryPanel
+              library={library}
+              onPickMusic={pickMusic}
+              onPickSfx={pickSfx}
+              onPickTransition={pickTransition}
+              transitionType={timeline.transition.type}
+              transitionTypes={transitionTypes}
+            />
+            {isMobile && (
+              <div className="m-actions">
+                <p className="m-actions-title">Adicionar no ponto atual do vídeo</p>
+                <button onClick={addCutHere}>✂️ Corte aqui</button>
+                <button onClick={addCalloutHere}>📝 Texto explicativo</button>
+                <button onClick={addKeywordHere}>🔥 Palavra em destaque</button>
+                <button onClick={addLayoutHere}>🎬 Cena explicativa</button>
+                {selection && (
+                  <button className="danger" onClick={deleteSelection}>
+                    🗑️ Excluir seleção
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
         <div className="center">
           <Player
@@ -622,29 +650,31 @@ export default function App() {
               />
               Mudo
             </label>
-            {showAdvanced && <><button onClick={addCutHere}>+ Adicionar corte</button>
+            {!isMobile && showAdvanced && <><button onClick={addCutHere}>+ Adicionar corte</button>
             <button onClick={addCalloutHere}>+ Adicionar texto</button>
             <button onClick={addKeywordHere}>+ Palavra em destaque</button>
             <button onClick={addLayoutHere}>+ Adicionar cena</button></>}
-            {selection && (
+            {selection && !isMobile && (
               <button className="danger" onClick={deleteSelection}>
                 Excluir seleção
               </button>
             )}
             <div className="spacer" />
-            <label className="zoom">
-              Zoom
-              <input
-                type="range"
-                min={1}
-                max={20}
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-              />
-            </label>
+            {!isMobile && (
+              <label className="zoom">
+                Zoom
+                <input
+                  type="range"
+                  min={1}
+                  max={20}
+                  value={zoom}
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                />
+              </label>
+            )}
           </div>
         </div>
-        {showAdvanced ? (
+        {isMobile || showAdvanced ? (
           <PropertiesPanel
             timeline={timeline}
             selection={selection}
@@ -664,7 +694,7 @@ export default function App() {
         )}
       </div>
 
-      <div className="timeline-area">
+      <div className={`timeline-area ${isMobile && mTab !== "preview" ? "m-hidden" : ""}`}>
         <TimelineView
           timeline={timeline}
           selection={selection}
@@ -674,6 +704,20 @@ export default function App() {
           zoom={zoom}
         />
       </div>
+
+      {isMobile && (
+        <nav className="mobile-nav">
+          <button className={mTab === "preview" ? "on" : ""} onClick={() => setMTab("preview")}>
+            ▶ Prévia
+          </button>
+          <button className={mTab === "edit" ? "on" : ""} onClick={() => setMTab("edit")}>
+            ⚙ Ajustes
+          </button>
+          <button className={mTab === "tools" ? "on" : ""} onClick={() => setMTab("tools")}>
+            🎵 Ferramentas
+          </button>
+        </nav>
+      )}
     </div>
   );
 }

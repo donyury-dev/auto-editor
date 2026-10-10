@@ -559,6 +559,9 @@ button.ghost:hover {
   display: flex;
   min-height: 0;
 }
+.library-wrap {
+  display: contents;
+}
 
 /* ---- biblioteca ---- */
 .library {
@@ -1183,7 +1186,7 @@ button.ghost:hover {
     overflow-y: auto;
   }
 
-  /* --- editor empilhado em coluna --- */
+  /* --- editor em abas (Prévia / Ajustes / Ferramentas) --- */
   .editor {
     height: auto;
     min-height: 100vh;
@@ -1214,24 +1217,94 @@ button.ghost:hover {
   .render-done-row {
     flex-wrap: wrap;
   }
-
+  .desktop-only {
+    display: none !important;
+  }
+  .library-wrap {
+    display: contents;
+  }
   .main {
     flex-direction: column;
   }
-  .center {
-    order: 0;
-    flex: none;
-    overflow: visible;
+  .main.m-preview .properties,
+  .main.m-preview .library-wrap {
+    display: none;
   }
-  .library {
-    order: 1;
-    width: 100%;
+  .main.m-edit .center,
+  .main.m-edit .library-wrap {
+    display: none;
+  }
+  .main.m-tools .center,
+  .main.m-tools .properties {
+    display: none;
+  }
+  .m-hidden {
+    display: none;
+  }
+
+  /* ações rápidas na aba Ferramentas */
+  .main.m-tools .library-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .main.m-tools .library {
+    flex: 1;
     border-right: none;
-    border-top: 1px solid var(--line);
-    max-height: 300px;
+    border-top: none;
+    max-height: none;
   }
+  .m-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .m-actions-title {
+    grid-column: 1 / -1;
+    margin: 0 0 2px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .m-actions button {
+    width: 100%;
+    padding: 14px 8px;
+    font-size: 13px;
+  }
+  .m-actions .danger {
+    grid-column: 1 / -1;
+  }
+
+  /* barra de abas inferior */
+  .mobile-nav {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .mobile-nav button {
+    flex: 1;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--dim);
+    padding: 12px 0 14px;
+    font-size: 13.5px;
+    min-height: 54px;
+  }
+  .mobile-nav button.on {
+    color: var(--accent);
+    font-weight: 700;
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+
   .properties {
-    order: 2;
     width: 100%;
     border-left: none;
     border-top: 1px solid var(--line);
