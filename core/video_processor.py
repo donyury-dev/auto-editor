@@ -22,6 +22,7 @@ from config.settings import (
     HORIZONTAL_RESOLUTION,
     VERTICAL_RESOLUTION,
     OutputFormat,
+    _detect_ram_gb,
 )
 from core.edit_plan import EditPlan
 from core.face_detection import detect_face_center
@@ -36,6 +37,17 @@ ProgressFn = Callable[[float, str], None]
 # crop negativas que o FFmpeg clampa, anulando o efeito do centro.
 FACE_FALLBACK_CX = 0.5
 FACE_FALLBACK_CY = 0.5
+
+
+def low_ram_mode() -> bool:
+    """True em servidores com pouca memória (ex.: Render 512 MB).
+
+    No modo leve o render abre mão dos efeitos mais pesados (zoom por
+    quadro, cadeia de xfade com N entradas simultâneas, overlays de
+    imagem) e usa encoder econômico — a prioridade é COMPLETAR o vídeo
+    com bons cortes e boa legenda.
+    """
+    return 0 < _detect_ram_gb() < 1.5
 
 
 class VideoProcessingError(RuntimeError):
@@ -230,9 +242,9 @@ class VideoProcessor:
             "-c:v",
             "libx264",
             "-preset",
-            "medium",
+            "veryfast" if low_ram_mode() else "medium",
             "-crf",
-            "20",
+            "22" if low_ram_mode() else "20",
             "-pix_fmt",
             "yuv420p",
             "-c:a",
@@ -386,6 +398,11 @@ class VideoProcessor:
         )
         base = self._base_canvas_filter(fmt, info)
 
+        # Modo leve: zoom por quadro (scale eval=frame + lanczos) é um dos
+        # pontos mais pesados do render — desliga em servidores pequenos.
+        if low_ram_mode():
+            zooms = []
+
         intersecting = [
             z for z in zooms if z.start < seg_end and z.end > seg_start
         ]
@@ -517,7 +534,58 @@ class VideoProcessor:
                     f"{err.strip()[-600:]}"
                 )
 
+    def _join_segments_concat_copy(
+        self, seg_paths: list[Path], out_path: Path
+    ) -> None:
+        """Junção leve: concat demuxer + stream copy (um arquivo por vez).
+
+        Se a cópia falhar (parâmetros divergentes entre segmentos), cai
+        para re-encode único do concat demuxer (still leve: 1 entrada).
+        """
+        list_file = out_path.parent / "concat_list.txt"
+        list_file.write_text(
+            "\n".join(f"file '{p.resolve().as_posix()}'" for p in seg_paths),
+            encoding="utf-8",
+        )
+        base_cmd = [
+            get_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "concat", "-safe", "0", "-i", str(list_file),
+        ]
+        copy_cmd = [
+            *base_cmd,
+            "-map", "0:v:0?", "-map", "0:a?",
+            "-c", "copy",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+        try:
+            self._run_ffmpeg(copy_cmd, "junção leve (cópia direta)")
+            return
+        except VideoProcessingError:
+            logger.warning(
+                "Stream copy falhou na junção; re-encodando em modo leve."
+            )
+        reencode_cmd = [
+            *base_cmd,
+            "-map", "0:v:0?", "-map", "0:a?",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+            "-threads", "2", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "160k",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+        self._run_ffmpeg(reencode_cmd, "junção leve (re-encode)")
+
     def _join_segments(
+        self, seg_paths: list[Path], plan: EditPlan, out_path: Path
+    ) -> None:
+        """Despacho: modo leve → cópia direta; normal → xfade/concat."""
+        if low_ram_mode():
+            self._join_segments_concat_copy(seg_paths, out_path)
+            return
+        self._join_segments_full(seg_paths, plan, out_path)
+
+    def _join_segments_full(
         self, seg_paths: list[Path], plan: EditPlan, out_path: Path
     ) -> None:
         """Une os segmentos com transições (xfade) ou concat simples.
@@ -605,9 +673,18 @@ class VideoProcessor:
             fc = ";".join(parts)
 
         cmd += ["-filter_complex", fc, *maps]
+        if low_ram_mode():
+            cmd += [
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+                "-threads", "2", "-pix_fmt", "yuv420p",
+            ]
+        else:
+            cmd += [
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-pix_fmt", "yuv420p",
+            ]
         cmd += [
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "192k",
             "-movflags", "+faststart", str(out_path),
         ]
         self._run_ffmpeg(cmd, "junção de segmentos")

@@ -501,6 +501,15 @@ class ApplyIllustrationsStep(PipelineStep):
     weight = 0.15
 
     def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
+        # Modo leve (servidor com pouca RAM): cada overlay exige um
+        # re-encode completo do vídeo — pulado para o render caber na
+        # memória. Ficam os cortes, legendas e áudio.
+        from core.video_processor import low_ram_mode
+
+        if low_ram_mode():
+            progress(1.0, "modo leve: destaques visuais desativados")
+            return
+
         approved_images = [
             m for m in ctx.illustrations
             if m.kind == "image" and m.image_path
@@ -1002,6 +1011,12 @@ class ApplyLayoutsStep(PipelineStep):
 
     def run(self, ctx: PipelineContext, progress: StepProgressFn) -> None:
         assert ctx.edited_path is not None
+        # Modo leve: cenas de layout são um re-encode completo extra.
+        from core.video_processor import low_ram_mode
+
+        if low_ram_mode():
+            progress(1.0, "modo leve: cenas de layout desativadas")
+            return
         layouts = list(ctx.edit_plan.layouts) if ctx.edit_plan else []
         if not layouts:
             progress(1.0, "sem cenas de layout")
