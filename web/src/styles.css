@@ -1138,3 +1138,125 @@ button.ghost:hover {
   z-index: 10;
   box-shadow: 0 0 6px rgba(255, 255, 255, 0.7);
 }
+
+/* ===================== CELULAR ===================== */
+
+/* Toque: arrastar blocos da timeline e palavras do player
+   não deve rolar a página */
+.lane,
+.ruler,
+.cut-block,
+.mini-block,
+.handle,
+.sfx-marker,
+.keyword-overlay span {
+  touch-action: none;
+}
+
+@media (max-width: 768px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  /* --- tela inicial / progresso --- */
+  .home {
+    align-items: flex-start;
+    padding: 24px 12px;
+    min-height: 100dvh;
+  }
+  .home-card {
+    width: 100%;
+    max-width: 520px;
+    padding: 28px 18px;
+  }
+  .dropzone {
+    padding: 26px 14px;
+  }
+  button {
+    min-height: 40px;
+  }
+  .modal {
+    width: 94vw;
+    max-width: 94vw;
+    max-height: 88dvh;
+    overflow-y: auto;
+  }
+
+  /* --- editor empilhado em coluna --- */
+  .editor {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .topbar button {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .editor-subtitle {
+    display: none;
+  }
+  .editor-guide {
+    display: none;
+  }
+  .render-bar {
+    flex-wrap: wrap;
+  }
+  .render-done-row {
+    flex-wrap: wrap;
+  }
+
+  .main {
+    flex-direction: column;
+  }
+  .center {
+    order: 0;
+    flex: none;
+    overflow: visible;
+  }
+  .library {
+    order: 1;
+    width: 100%;
+    border-right: none;
+    border-top: 1px solid var(--line);
+    max-height: 300px;
+  }
+  .properties {
+    order: 2;
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .player video {
+    max-height: 48vh;
+  }
+  .controls {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .controls .zoom input {
+    width: 90px;
+  }
+
+  .timeline-area {
+    height: 200px;
+  }
+
+  /* alvos de toque maiores */
+  .controls button,
+  .properties button,
+  .lib-item {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+}
