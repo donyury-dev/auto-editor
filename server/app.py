@@ -28,6 +28,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import traceback
 
 from audio.music_manager import MusicManager
 from config.settings import DATA_DIR, OUTPUT_DIR, Settings
@@ -122,6 +123,62 @@ def _validate_editor_token(access_token: str) -> bool:
     except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError) as exc:
         logger.warning("Falha ao validar acesso do editor: %s", exc)
         return False
+
+
+def _validate_editor_token_debug(access_token: str) -> dict[str, Any]:
+    """Retorna detalhes da validação para diagnóstico (sem expor a senha/token)."""
+    result: dict[str, Any] = {"token_present": bool(access_token), "steps": []}
+    if not access_token:
+        result["allowed"] = False
+        result["reason"] = "access_token vazio"
+        return result
+    try:
+        user = _supabase_get("/auth/v1/user", access_token)
+        user_id = user.get("id")
+        result["steps"].append({"step": "auth_user", "user_id": user_id, "email": user.get("email")})
+        if not user_id:
+            result["allowed"] = False
+            result["reason"] = "token não retornou user_id"
+            return result
+
+        profiles = _supabase_get(
+            f"/rest/v1/profiles?select=tenant_id,role&user_id=eq.{user_id}&limit=1",
+            access_token,
+        )
+        result["steps"].append({"step": "profiles", "profiles": profiles})
+        tenant_id = profiles[0].get("tenant_id") if profiles else None
+        if not tenant_id:
+            result["allowed"] = False
+            result["reason"] = "usuário sem tenant vinculado"
+            return result
+
+        accesses = _supabase_get(
+            f"/rest/v1/editor_access?select=plan,included_until,manual_grant,manual_revoked"
+            f"&tenant_id=eq.{tenant_id}&limit=1",
+            access_token,
+        )
+        result["steps"].append({"step": "editor_access", "access": accesses})
+        access = accesses[0] if accesses else None
+        allowed = _editor_access_allowed(access)
+        result["allowed"] = allowed
+        result["reason"] = (
+            "acesso liberado"
+            if allowed
+            else "editor_access não encontrado ou não liberado"
+        )
+        return result
+    except Exception as exc:
+        result["allowed"] = False
+        result["reason"] = f"exceção: {type(exc).__name__}: {exc}"
+        result["traceback"] = traceback.format_exc()
+        return result
+
+
+@app.get("/api/debug/access")
+def debug_editor_access(access_token: str = ""):
+    """Endpoint de diagnóstico: por que o acesso foi negado?"""
+    diag = _validate_editor_token_debug(access_token)
+    return JSONResponse(diag)
 
 
 @app.middleware("http")

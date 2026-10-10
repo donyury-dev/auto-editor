@@ -790,7 +790,17 @@ export default function App() {
         <div className="home-card">
           <h1>Acesso ao editor bloqueado</h1>
           <p className="subtitle">{accessMessage}</p>
-          <p className="hint">Peça ao administrador da plataforma para liberar o Editor de Vídeo no painel central.</p>
+          <p className="hint">
+            Peça ao administrador da plataforma para liberar o Editor de Vídeo no painel central
+            (Gestão da Plataforma → Clientes → Editor → +30 dias / Permanente).
+          </p>
+          <button
+            className="btn-primary"
+            onClick={() => window.location.reload()}
+            style={{ marginTop: 16 }}
+          >
+            Tentar novamente
+          </button>
         </div>
       </div>
     );
