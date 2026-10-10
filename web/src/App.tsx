@@ -46,6 +46,8 @@ export default function App() {
   const screenRef = useRef<Screen>("home");
   const renderingRef = useRef(false);
   const gotErrorRef = useRef(false);
+  const wakeRef = useRef<any>(null);
+  const lastFileRef = useRef<File | null>(null);
 
   useEffect(() => {
     screenRef.current = screen;
@@ -53,6 +55,44 @@ export default function App() {
   useEffect(() => {
     renderingRef.current = rendering;
   }, [rendering]);
+
+  // Mantém a tela do celular acesa durante upload/análise/renderização
+  const requestWake = useCallback(async () => {
+    try {
+      if ("wakeLock" in navigator && !wakeRef.current) {
+        wakeRef.current = await (navigator as any).wakeLock.request("screen");
+        wakeRef.current.addEventListener("release", () => {
+          wakeRef.current = null;
+        });
+      }
+    } catch {
+      // Wake Lock indisponível — segue o fluxo normal
+    }
+  }, []);
+  const releaseWake = useCallback(() => {
+    try {
+      wakeRef.current?.release();
+    } catch {
+      // nada a liberar
+    }
+    wakeRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (screen === "busy" || rendering) requestWake();
+    else releaseWake();
+    return () => releaseWake();
+  }, [screen, rendering, requestWake, releaseWake]);
+
+  // Readquire o lock se o usuário voltar para a aba
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible" && (screenRef.current === "busy" || renderingRef.current))
+        requestWake();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [requestWake]);
 
   useEffect(() => {
     api.library().then(setLibrary).catch(() => {});
@@ -142,6 +182,7 @@ export default function App() {
 
   const handleFile = async (file: File) => {
     setError("");
+    lastFileRef.current = file;
     setScreen("busy");
     setProgress({ overall: 0, step: "Enviando vídeo", msg: file.name });
     try {
@@ -154,7 +195,11 @@ export default function App() {
       );
       await startAnalysis(res.path);
     } catch (e: any) {
-      setError(String(e.message || e));
+      setError(
+        String(e.message || e).includes("Falha no envio")
+          ? "O envio do vídeo foi interrompido (a tela do celular pode ter apagado ou a internet caiu). O sistema já tenta manter a tela acesa — toque em Tentar novamente."
+          : String(e.message || e)
+      );
       setScreen("home");
     }
   };
@@ -395,6 +440,11 @@ export default function App() {
             sugestões — tudo antes de você revisar na timeline.
           </p>
           {error && <p className="error">{error}</p>}
+          {error && lastFileRef.current && (
+            <button className="accent" onClick={() => handleFile(lastFileRef.current!)}>
+              Tentar novamente
+            </button>
+          )}
         </div>
         {showBrowser && (
           <FileBrowser onPick={pickVideo} onClose={() => setShowBrowser(false)} />
@@ -428,6 +478,11 @@ export default function App() {
               <button className="ghost" onClick={() => setScreen("home")}>
                 Voltar
               </button>
+              {lastFileRef.current && (
+                <button className="accent" onClick={() => handleFile(lastFileRef.current!)}>
+                  Tentar novamente
+                </button>
+              )}
             </>
           )}
         </div>
