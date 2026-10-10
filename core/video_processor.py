@@ -80,11 +80,20 @@ class VideoInfo:
 def resolve_target_resolution(
     fmt: OutputFormat, info: VideoInfo
 ) -> tuple[int, int]:
-    """Retorna a resolução de saída para o formato escolhido."""
+    """Retorna a resolução de saída para o formato escolhido.
+
+    No modo leve o teto é 720p: os buffers de frame do encoder crescem
+    com a resolução e a prioridade é o render completar em 512 MB.
+    """
+    cap = low_ram_mode()
     if fmt == OutputFormat.VERTICAL:
-        return VERTICAL_RESOLUTION
+        return (720, 1280) if cap else VERTICAL_RESOLUTION
     if fmt == OutputFormat.HORIZONTAL:
-        return HORIZONTAL_RESOLUTION
+        return (1280, 720) if cap else HORIZONTAL_RESOLUTION
+    if cap:
+        h = min(info.height, 1280) // 2 * 2
+        w = int(info.width * h / max(1, info.height)) // 2 * 2
+        return (max(w, 2), h)
     return (info.width, info.height)
 
 
@@ -185,6 +194,15 @@ class VideoProcessor:
         """
         lut = f"lut3d=file='{lut_file}'," if lut_file else ""
         if fmt == OutputFormat.ORIGINAL:
+            cap_w, cap_h = resolve_target_resolution(fmt, info)
+            if (cap_w, cap_h) != (info.width, info.height):
+                # Modo leve: reduz para o teto de resolução.
+                return [
+                    "-vf",
+                    f"{lut}scale={cap_w}:{cap_h},{ass_arg}",
+                    "-map",
+                    "0:v:0",
+                ]
             # Apenas normaliza dimensões pares e queima as legendas.
             return [
                 "-vf",
@@ -253,9 +271,11 @@ class VideoProcessor:
             "-c:v",
             "libx264",
             "-preset",
-            "veryfast" if low_ram_mode() else "medium",
+            "ultrafast" if low_ram_mode() else "medium",
+            "-threads",
+            "1" if low_ram_mode() else "0",
             "-crf",
-            "22" if low_ram_mode() else "20",
+            "23" if low_ram_mode() else "20",
             "-pix_fmt",
             "yuv420p",
             "-c:a",
