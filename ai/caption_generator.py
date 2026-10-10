@@ -29,16 +29,31 @@ _NICHE_HASHTAGS: dict[str, list[str]] = {
 _STOPWORDS = {
     "a", "o", "as", "os", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das",
     "em", "no", "na", "nos", "nas", "por", "para", "com", "sem", "sob", "sobre", "entre",
-    "ate", "apos", "antes", "durante", "que", "se", "como", "mas", "ou", "e", "eh", "sao",
-    "este", "esta", "isto", "esse", "essa", "isso", "aquele", "aquela", "aquilo", "meu",
-    "minha", "seu", "sua", "dele", "dela", "mesmo", "muito", "mais", "menos", "tambem",
-    "ja", "ainda", "agora", "depois", "hoje", "aqui", "ai", "la", "the", "and", "for",
-    "with", "you", "this", "that", "from", "are", "was", "were", "have", "has", "had",
-    "mudou", "mudar", "precisamos", "precisar", "fazer", "fazemos", "vamos", "vai", "ir",
-    "nossas", "nossos", "suas", "minhas", "vidas", "vida", "temos", "ter", "essa", "esse",
-    "essa", "novo", "nova", "novos", "novas", "cada", "todo", "toda", "todos", "todas",
-    "assim", "pois", "porque", "quando", "onde", "qual", "quem", "cujo", "cuja",
+    "ate", "até", "apos", "após", "antes", "durante", "que", "se", "como", "mas", "ou",
+    "e", "eh", "é", "sao", "são", "nao", "não", "sim", "este", "esta", "isto", "esse",
+    "essa", "isso", "aquele", "aquela", "aquilo", "meu", "minha", "seu", "sua", "dele",
+    "dela", "mesmo", "muito", "muita", "mais", "menos", "tambem", "também", "ja", "já",
+    "ainda", "agora", "depois", "hoje", "aqui", "ai", "aí", "la", "lá", "the", "and",
+    "for", "with", "you", "this", "that", "from", "are", "was", "were", "have", "has",
+    "had", "mudou", "mudar", "precisamos", "precisar", "fazer", "fazemos", "vamos",
+    "vai", "ir", "nossas", "nossos", "suas", "minhas", "vidas", "vida", "temos", "ter",
+    "novo", "nova", "novos", "novas", "cada", "todo", "toda", "todos", "todas", "assim",
+    "pois", "porque", "quando", "onde", "qual", "quem", "cujo", "cuja", "voce", "você",
+    "voces", "vocês", "ser", "estar", "pelo", "pela", "pelos", "pelas", "sempre",
+    "nunca", "quase", "talvez", "coisa", "coisas", "algum", "alguma", "alguns",
+    "algumas", "nosso", "nossa", "parou", "parar", "pensar", "pensa", "achou", "ver",
+    "olhar", "olha", "bem", "melhor", "pior", "vou", "foi", "era", "sera", "será",
+    "esta", "estão", "estao", "sendo", "vindo", "consegue", "conseguir", "tal", "tipo",
+    "transformar", "mostrar", "aumentar", "usar", "achar", "falar", "contar",
 }
+
+# Terminações que indicam verbo conjugado (não servem como hashtag)
+_BAD_VERB_ENDINGS = (
+    "ando", "endo", "indo", "ondo",  # gerúndio
+    "amos", "emos", "imos",          # nós
+    "aram", "eram", "iram",          # eles (pretérito)
+    "armos", "ermos", "irmos",       # infinitivo pessoal
+)
 
 # Sufixos que indicam substantivo/adjetivo em português/inglês
 _GOOD_SUFFIXES = (
@@ -75,19 +90,61 @@ def _detect_niche(text: str) -> str:
     return max(scores, key=scores.get) if scores and max(scores.values()) > 0 else "motivacao"
 
 
+def _trim(text: str, max_len: int) -> str:
+    """Corta no limite pedindo, sem quebrar palavras no meio."""
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= max_len:
+        return text
+    cut = text[: max_len - 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(",;:") + "…"
+
+
+_CTA_BY_PLATFORM = {
+    "reels": "Comenta aqui o que você achou 👇\nSalva esse vídeo para não esquecer 💾\nSegue pra mais conteúdo assim ✅",
+    "story": "Arrasta pra cima e me conta o que você pensou 💬",
+    "post": "E você, o que acha disso? Deixa seu comentário 👇\nCompartilha com alguém que precisa ver isso 📤",
+    "video": "Deixe seu comentário com o que você achou 👇\nCompartilhe com quem precisa ver isso 📤",
+}
+
+
 def _heuristic_caption(text: str, platform: str = "reels") -> GeneratedCaption:
-    """Gera legenda + hashtags localmente sem chamar API externa."""
-    # Frases curtas e limpas
-    sentences = [s.strip() for s in re.split(r"[.!?]", text) if s.strip()]
-    summary = sentences[0] if sentences else text
-    if len(summary) > 120:
-        summary = summary[:117] + "..."
+    """Gera legenda + hashtags localmente sem chamar API externa.
+
+    A legenda segue a estrutura usada em conteúdo viral:
+    gancho (primeira frase forte) -> desenvolvimento -> chamada para ação.
+    """
+    sentences = [s.strip() for s in re.split(r"[.!?]+", text) if len(s.strip()) >= 15]
+
+    # Gancho: a frase mais curta e forte do início, senão a primeira
+    hook = sentences[0] if sentences else _trim(text, 120)
+    for s in sentences[:3]:
+        if 30 <= len(s) <= 90:
+            hook = s
+            break
+    hook = _trim(hook, 110)
+
+    # Desenvolvimento: 1-2 frases do miolo que resumem a ideia
+    middle = [s for s in sentences if s != hook]
+    dev_parts = sorted(middle, key=len, reverse=True)[:2]
+    development = " ".join(_trim(s, 160) for s in dev_parts).strip()
+
+    cta = _CTA_BY_PLATFORM.get(platform, _CTA_BY_PLATFORM["reels"])
+
+    blocks = [hook]
+    if development:
+        blocks.append(development)
+    blocks.append(cta)
+    caption = "\n\n".join(b for b in blocks if b)
 
     # Extrai palavras frequentes e relevantes para hashtags
     words = re.findall(r"\b[a-zA-Zà-úÀ-Ú]{4,}\b", text.lower())
 
     def _good_word(w: str) -> bool:
         if w in _STOPWORDS:
+            return False
+        if w.endswith(_BAD_VERB_ENDINGS):
             return False
         # Só aceita palavras com sufixo de substantivo/adjetivo ou com 6+ letras
         if any(w.endswith(suf) for suf in _GOOD_SUFFIXES):
@@ -99,7 +156,8 @@ def _heuristic_caption(text: str, platform: str = "reels") -> GeneratedCaption:
         if not _good_word(w):
             continue
         freq[w] = freq.get(w, 0) + 1
-    top = sorted(freq.items(), key=lambda x: x[1], reverse=True)[:5]
+    # Prioriza palavras que aparecem mais de uma vez, depois as mais longas
+    top = sorted(freq.items(), key=lambda x: (x[1], len(x[0])), reverse=True)[:4]
     tags = [f"#{w}" for w, _ in top]
 
     # Adiciona hashtags de nicho
@@ -109,12 +167,12 @@ def _heuristic_caption(text: str, platform: str = "reels") -> GeneratedCaption:
             tags.append(t)
 
     # Hashtags de plataforma
-    platform_tags = ["#reels", "#viral", "#shorts"] if platform in {"reels", "story"} else ["#feed", "#post"]
+    platform_tags = ["#reels", "#viral", "#dicas"] if platform in {"reels", "story"} else ["#feed", "#post"]
     for t in platform_tags:
         if t not in tags:
             tags.append(t)
 
-    return GeneratedCaption(caption=summary, hashtags=tags[:10])
+    return GeneratedCaption(caption=caption, hashtags=tags[:10])
 
 
 def generate_caption(
