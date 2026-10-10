@@ -15,12 +15,14 @@ import secrets
 import threading
 import time
 import uuid
+import os
+from urllib.parse import urlencode
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -89,6 +91,7 @@ PROJECTS: dict[str, ProjectState] = {}
 
 # Mapeia token público -> project_id para o endpoint /api/public-video/{token}
 _PUBLIC_VIDEO_TOKENS: dict[str, str] = {}
+_INSTAGRAM_OAUTH_STATES: set[str] = set()
 
 
 def _revive_projects_from_disk() -> None:
@@ -947,6 +950,87 @@ def get_caption(project_id: str) -> dict:
 # ----------------------------------------------------------------------
 # Instagram (Graph API do Meta)
 # ----------------------------------------------------------------------
+
+
+@app.get("/api/instagram/oauth/start")
+def instagram_oauth_start() -> dict:
+    """Cria o link seguro de login do Meta para conectar o Instagram."""
+    app_id = os.environ.get("META_APP_ID", "").strip()
+    if not app_id:
+        raise HTTPException(
+            503,
+            "Login automático ainda não foi configurado pelo administrador "
+            "(META_APP_ID). Use o modo alternativo ou avise o administrador.",
+        )
+    from config.settings import get_public_base_url
+
+    state = secrets.token_urlsafe(24)
+    _INSTAGRAM_OAUTH_STATES.add(state)
+    redirect_uri = f"{get_public_base_url()}/api/instagram/oauth/callback"
+    query = urlencode(
+        {
+            "client_id": app_id,
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "scope": "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement",
+            "response_type": "code",
+        }
+    )
+    return {
+        "url": f"https://www.facebook.com/v20.0/dialog/oauth?{query}",
+        "redirect_uri": redirect_uri,
+    }
+
+
+@app.get("/api/instagram/oauth/callback", response_class=HTMLResponse)
+def instagram_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Troca o código do Meta e devolve o token à janela que iniciou o login."""
+    if state not in _INSTAGRAM_OAUTH_STATES:
+        return HTMLResponse("Login inválido ou expirado.", status_code=400)
+    _INSTAGRAM_OAUTH_STATES.discard(state)
+    if error or not code:
+        return HTMLResponse(
+            "<script>window.opener?.postMessage({type:'instagram-oauth-error',"
+            "message:'Login cancelado.'}, '*'); window.close();</script>"
+        )
+    app_id = os.environ.get("META_APP_ID", "").strip()
+    app_secret = os.environ.get("META_APP_SECRET", "").strip()
+    if not app_id or not app_secret:
+        return HTMLResponse("Login automático não configurado.", status_code=503)
+    from config.settings import get_public_base_url
+    from social.instagram import InstagramError, connect_account
+    import requests
+
+    redirect_uri = f"{get_public_base_url()}/api/instagram/oauth/callback"
+    try:
+        response = requests.get(
+            "https://graph.facebook.com/v20.0/oauth/access_token",
+            params={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "redirect_uri": redirect_uri,
+                "code": code,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        access_token = response.json()["access_token"]
+        account = connect_account(access_token)
+        payload = json.dumps(
+            {
+                "type": "instagram-oauth-success",
+                "access_token": access_token,
+                "ig_user_id": account.ig_user_id,
+                "username": account.username,
+            }
+        )
+        return HTMLResponse(
+            f"<script>window.opener?.postMessage({payload}, '*'); window.close();</script>"
+        )
+    except (requests.RequestException, KeyError, InstagramError) as exc:
+        logger.warning("Falha no callback OAuth do Instagram: %s", exc)
+        message = json.dumps({"type": "instagram-oauth-error", "message": "Não foi possível conectar a conta."})
+        return HTMLResponse(f"<script>window.opener?.postMessage({message}, '*'); window.close();</script>")
 
 
 @app.post("/api/instagram/connect")

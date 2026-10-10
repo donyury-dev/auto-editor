@@ -102,6 +102,11 @@ export const api = {
       j<{ connected: boolean; ig_user_id: string; username: string }>(r)
     ),
 
+  instagramOAuthStart: () =>
+    fetch("/api/instagram/oauth/start").then((r) =>
+      j<{ url: string; redirect_uri: string }>(r)
+    ),
+
   instagramPublish: (
     id: string,
     body: {

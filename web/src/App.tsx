@@ -40,6 +40,7 @@ export default function App() {
   const [publishCaption, setPublishCaption] = useState("");
   const [publishHashtags, setPublishHashtags] = useState("");
   const [showPublish, setShowPublish] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const closeSSE = useRef<(() => void) | null>(null);
   const screenRef = useRef<Screen>("home");
@@ -448,15 +449,26 @@ export default function App() {
   return (
     <div className="editor">
       <header className="topbar">
-        <span className="logo">Auto Editor</span>
+        <div>
+          <span className="logo">Auto Editor</span>
+          <span className="editor-subtitle">Revisão do seu vídeo</span>
+        </div>
         <div className="spacer" />
-        <button className="ghost" onClick={() => setShowProviders(true)}>
-          ⚙ IA
+        <button className="ghost" onClick={() => setShowAdvanced((v) => !v)}>
+          {showAdvanced ? "Ocultar ferramentas" : "Mais ferramentas"}
         </button>
         <button className="accent" onClick={doRender} disabled={rendering}>
-          {rendering ? "Renderizando…" : "Renderizar"}
+          {rendering ? "Preparando vídeo…" : "Gerar vídeo final"}
         </button>
       </header>
+
+      <div className="editor-guide">
+        <div className="guide-step active"><b>1</b><span>Confira a prévia</span></div>
+        <div className="guide-line" />
+        <div className="guide-step"><b>2</b><span>Ajuste se quiser</span></div>
+        <div className="guide-line" />
+        <div className="guide-step"><b>3</b><span>Gere e publique</span></div>
+      </div>
 
       {rendering && (
         <div className="render-bar">
@@ -478,14 +490,14 @@ export default function App() {
         <div className="render-bar ok">
           <div className="render-done-row">
             <span>Vídeo pronto!</span>
-            <a href={`/api/projects/${projectId}/output`} download>
-              Baixar MP4
+            <a className="download-button" href={`/api/projects/${projectId}/output`} download>
+              Baixar vídeo
             </a>
             <button
-              className="ghost"
+              className="accent"
               onClick={() => setShowPublish(true)}
             >
-              Publicar no Instagram
+              Publicar nas redes
             </button>
           </div>
           <CaptionEditor
@@ -513,14 +525,16 @@ export default function App() {
       )}
 
       <div className="main">
-        <LibraryPanel
-          library={library}
-          onPickMusic={pickMusic}
-          onPickSfx={pickSfx}
-          onPickTransition={pickTransition}
-          transitionType={timeline.transition.type}
-          transitionTypes={transitionTypes}
-        />
+        {showAdvanced && (
+          <LibraryPanel
+            library={library}
+            onPickMusic={pickMusic}
+            onPickSfx={pickSfx}
+            onPickTransition={pickTransition}
+            transitionType={timeline.transition.type}
+            transitionTypes={transitionTypes}
+          />
+        )}
         <div className="center">
           <Player
             videoUrl={`/api/projects/${projectId}/video`}
@@ -535,7 +549,7 @@ export default function App() {
           />
           <div className="controls">
             <button onClick={togglePlay} className="primary">
-              {playing ? "⏸ Pausar" : "▶ Play"}
+              {playing ? "⏸ Pausar prévia" : "▶ Reproduzir prévia"}
             </button>
             <label className="toggle">
               <input
@@ -553,10 +567,10 @@ export default function App() {
               />
               Mudo
             </label>
-            <button onClick={addCutHere}>+ Corte aqui</button>
-            <button onClick={addCalloutHere}>+ Call-out aqui</button>
-            <button onClick={addKeywordHere}>+ Palavra-chave aqui</button>
-            <button onClick={addLayoutHere}>+ Cena aqui</button>
+            {showAdvanced && <><button onClick={addCutHere}>+ Adicionar corte</button>
+            <button onClick={addCalloutHere}>+ Adicionar texto</button>
+            <button onClick={addKeywordHere}>+ Palavra em destaque</button>
+            <button onClick={addLayoutHere}>+ Adicionar cena</button></>}
             {selection && (
               <button className="danger" onClick={deleteSelection}>
                 Excluir seleção
@@ -575,14 +589,24 @@ export default function App() {
             </label>
           </div>
         </div>
-        <PropertiesPanel
-          timeline={timeline}
-          selection={selection}
-          onChange={commit}
-          onDelete={deleteSelection}
-          captionStyles={captionStyles}
-          library={library}
-        />
+        {showAdvanced ? (
+          <PropertiesPanel
+            timeline={timeline}
+            selection={selection}
+            onChange={commit}
+            onDelete={deleteSelection}
+            captionStyles={captionStyles}
+            library={library}
+          />
+        ) : (
+          <aside className="properties simple-help">
+            <h3>Como editar</h3>
+            <p>1. Aperte <b>Reproduzir prévia</b> para assistir.</p>
+            <p>2. Arraste a linha azul para navegar.</p>
+            <p>3. Abra <b>Mais ferramentas</b> apenas quando precisar ajustar cortes, textos, música ou transições.</p>
+            <button className="ghost" onClick={() => setShowAdvanced(true)}>Abrir ferramentas de edição</button>
+          </aside>
+        )}
       </div>
 
       <div className="timeline-area">

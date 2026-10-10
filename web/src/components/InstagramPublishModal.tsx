@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 
 interface InstagramPublishModalProps {
@@ -24,6 +24,34 @@ export default function InstagramPublishModal({
   const [caption, setCaption] = useState(initialCaption);
   const [error, setError] = useState("");
   const [postUrl, setPostUrl] = useState("");
+
+  const openInstagramLogin = async () => {
+    setError("");
+    try {
+      const { url } = await api.instagramOAuthStart();
+      const popup = window.open(url, "instagram-login", "width=620,height=760");
+      if (!popup) {
+        setError("O navegador bloqueou a janela de login. Permita pop-ups e tente novamente.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Login automático indisponível");
+    }
+  };
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "instagram-oauth-success") {
+        setToken(event.data.access_token);
+        setUsername(event.data.username);
+        setIgUserId(event.data.ig_user_id);
+        setStep("publish");
+      } else if (event.data?.type === "instagram-oauth-error") {
+        setError(event.data.message || "Não foi possível conectar a conta.");
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   const connect = async () => {
     setError("");
@@ -71,15 +99,23 @@ export default function InstagramPublishModal({
 
         {step === "connect" && (
           <div className="modal-body">
-            <p className="hint">
-              1. Crie um app em developers.facebook.com (produto Instagram).
-              <br />
-              2. Copie o Access Token de produção (permissões
-              instagram_basic e instagram_content_publish).
-              <br />
-              3. Sua conta precisa ser Instagram Profissional vinculada a uma
-              página do Facebook.
+            <div className="publish-intro">
+              <strong>Conecte sua conta uma vez</strong>
+              <span>Você será levado ao Facebook/Meta para autorizar o Auto Editor. A senha nunca passa pelo nosso sistema.</span>
+            </div>
+            <button className="instagram-login" onClick={openInstagramLogin}>
+              Entrar com Instagram
+            </button>
+            <p className="hint login-note">
+              Para publicar, sua conta precisa ser Profissional (Creator ou
+              Business) e estar ligada a uma Página do Facebook.
             </p>
+            <details className="manual-login">
+              <summary>Configuração técnica / usar Access Token</summary>
+              <p className="hint">
+                Use esta alternativa somente se o administrador ainda não
+                configurou o login automático no Meta Developers.
+              </p>
             <label>
               Access Token do Meta
               <textarea
@@ -93,6 +129,7 @@ export default function InstagramPublishModal({
             <button className="accent" onClick={connect}>
               Conectar conta
             </button>
+            </details>
           </div>
         )}
 
@@ -124,7 +161,7 @@ export default function InstagramPublishModal({
             </label>
             {error && <p className="error">{error}</p>}
             <button className="accent" onClick={publish}>
-              Publicar agora
+              Publicar no Instagram
             </button>
           </div>
         )}
