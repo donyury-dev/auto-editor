@@ -130,6 +130,14 @@ export const api = {
 
   library: () => fetch("/api/library").then((r) => j<Library>(r)),
 
+  uploadMusic: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch("/api/upload/music", { method: "POST", body: fd }).then((r) =>
+      j<{ path: string; label: string }>(r)
+    );
+  },
+
   transitions: () =>
     fetch("/api/transitions").then((r) => j<{ types: string[] }>(r)),
 

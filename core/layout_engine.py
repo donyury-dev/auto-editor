@@ -95,20 +95,9 @@ def pick_layouts(words: list, duration: float) -> list[LayoutScene]:
             continue
         candidates.append(_Candidate(start, end, score=len(hit) + len(words) and i, trigger_idx=i))
 
-    # Fallback: nenhum gatilho na fala (comum em vídeos de opinião).
-    # A cena de layout é a cara do vídeo modelo — usa a(s) frase(s) mais
-    # longa(s) como momento de explicação.
-    if not candidates:
-        step = max(1, len(words) // 24)
-        for i in range(0, len(words), step):
-            start, end = _sentence_bounds(words, i, duration)
-            if end - start < MIN_LAYOUT_S:
-                continue
-            candidates.append(
-                _Candidate(start, end, score=int(end - start), trigger_idx=i)
-            )
-
-    # melhores primeiro (gatilho mais "conceitual" = frase mais longa)
+    # Sem gatilhos na fala → nenhuma cena de layout é criada.
+    # (o fallback antigo forçava cenas em todo vídeo e ficava fora de contexto;
+    # o usuário pode adicionar a cena manualmente pela timeline)
     candidates.sort(key=lambda c: (-(c.end - c.start)))
     chosen: list[_Candidate] = []
     for c in candidates:

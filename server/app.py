@@ -1316,6 +1316,34 @@ async def upload_video(file: UploadFile) -> dict:
     return {"path": str(dest), "name": file.filename, "size": size}
 
 
+MUSIC_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".aac", ".opus"}
+
+
+def _user_music_dir() -> Path:
+    d = OUTPUT_DIR / "uploads" / "music"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+@app.post("/api/upload/music")
+async def upload_music(file: UploadFile) -> dict:
+    """Recebe uma música enviada pelo usuário (ex.: galeria do celular)."""
+    name = Path(file.filename or "musica").stem or "musica"
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in MUSIC_EXTENSIONS:
+        suffix = ".mp3"
+    dest = _user_music_dir() / f"{uuid.uuid4().hex[:12]}{suffix}"
+    size = 0
+    with dest.open("wb") as out:
+        while chunk := await file.read(4 * 1024 * 1024):
+            out.write(chunk)
+            size += len(chunk)
+    if size == 0:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, "Arquivo vazio.")
+    return {"path": str(dest), "label": name}
+
+
 @app.get("/api/pack/file")
 def pack_file(path: str):
     """Serve uma imagem do pack (ícones dos cartões da cena)."""
@@ -1421,7 +1449,14 @@ def library() -> dict:
             pack[cat] = [
                 {"path": str(i.path), "label": i.name} for i in items[:80]
             ]
-    return {"music": music_items, "sfx": sfx_items, "pack": pack}
+    # músicas enviadas pelo usuário (galeria do celular) primeiro
+    user_dir = _user_music_dir()
+    user_items = [
+        {"path": str(f), "label": f.stem, "origin": "do celular"}
+        for f in sorted(user_dir.glob("*"))
+        if f.suffix.lower() in MUSIC_EXTENSIONS
+    ]
+    return {"music": user_items + music_items, "sfx": sfx_items, "pack": pack}
 
 
 @app.get("/api/transitions")

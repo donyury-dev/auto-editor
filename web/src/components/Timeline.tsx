@@ -8,6 +8,7 @@ interface TimelineProps {
   onCommit: (t: Timeline) => void;
   videoRef: React.RefObject<HTMLVideoElement>;
   zoom: number;
+  onZoom?: (z: number) => void;
 }
 
 type DragState =
@@ -31,6 +32,7 @@ export default function Timeline({
   onCommit,
   videoRef,
   zoom,
+  onZoom,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const laneRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,29 @@ export default function Timeline({
     if (!el) return 0;
     const rect = el.getBoundingClientRect();
     return clamp((clientX - rect.left) / pxPerSec, 0, duration);
+  };
+
+  // pinça com dois dedos para dar zoom na linha do tempo (celular)
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      pinch.current = {
+        dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+        zoom,
+      };
+    }
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && pinch.current && onZoom) {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      if (pinch.current.dist > 0)
+        onZoom(clamp((pinch.current.zoom * d) / pinch.current.dist, 1, 30));
+    }
+  };
+  const onTouchEnd = () => {
+    pinch.current = null;
   };
 
   const startDrag = (
@@ -202,7 +227,13 @@ export default function Timeline({
     dragTL && dragTL.id === id ? dragTL : null;
 
   return (
-    <div className="timeline" ref={scrollRef}>
+    <div
+      className="timeline"
+      ref={scrollRef}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
       <div className="lane" ref={laneRef} style={{ width: laneWidth }}>
         <div className="ruler">
           {ticks.map((t) => (

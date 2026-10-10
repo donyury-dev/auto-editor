@@ -106,11 +106,15 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [requestWake]);
 
-  useEffect(() => {
+  const reloadLibrary = useCallback(() => {
     api.library().then(setLibrary).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    reloadLibrary();
     api.transitions().then((d) => setTransitionTypes(d.types)).catch(() => {});
     api.captionStyles().then((d) => setCaptionStyles(d.styles)).catch(() => {});
-  }, [projectId]);
+  }, [projectId, reloadLibrary]);
 
   // Reabre um projeto existente via URL: /?p=<projectId>
   useEffect(() => {
@@ -592,31 +596,16 @@ export default function App() {
       )}
 
       <div className={`main ${isMobile ? `m-${mTab}` : "desktop"}`}>
-        {(!isMobile ? showAdvanced : true) && (
-          <div className="library-wrap">
-            <LibraryPanel
-              library={library}
-              onPickMusic={pickMusic}
-              onPickSfx={pickSfx}
-              onPickTransition={pickTransition}
-              transitionType={timeline.transition.type}
-              transitionTypes={transitionTypes}
-            />
-            {isMobile && (
-              <div className="m-actions">
-                <p className="m-actions-title">Adicionar no ponto atual do vídeo</p>
-                <button onClick={addCutHere}>✂️ Corte aqui</button>
-                <button onClick={addCalloutHere}>📝 Texto explicativo</button>
-                <button onClick={addKeywordHere}>🔥 Palavra em destaque</button>
-                <button onClick={addLayoutHere}>🎬 Cena explicativa</button>
-                {selection && (
-                  <button className="danger" onClick={deleteSelection}>
-                    🗑️ Excluir seleção
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+        {!isMobile && showAdvanced && (
+          <LibraryPanel
+            library={library}
+            onPickMusic={pickMusic}
+            onPickSfx={pickSfx}
+            onPickTransition={pickTransition}
+            transitionType={timeline.transition.type}
+            transitionTypes={transitionTypes}
+            onLibraryChanged={reloadLibrary}
+          />
         )}
         <div className="center">
           <Player
@@ -660,7 +649,16 @@ export default function App() {
               </button>
             )}
             <div className="spacer" />
-            {!isMobile && (
+            {isMobile ? (
+              <div className="zoom-btns">
+                <button aria-label="Menos zoom" onClick={() => setZoom((z) => Math.max(1, z / 1.4))}>
+                  ➖
+                </button>
+                <button aria-label="Mais zoom" onClick={() => setZoom((z) => Math.min(30, z * 1.4))}>
+                  🔍➕
+                </button>
+              </div>
+            ) : (
               <label className="zoom">
                 Zoom
                 <input
@@ -674,27 +672,28 @@ export default function App() {
             )}
           </div>
         </div>
-        {isMobile || showAdvanced ? (
-          <PropertiesPanel
-            timeline={timeline}
-            selection={selection}
-            onChange={commit}
-            onDelete={deleteSelection}
-            captionStyles={captionStyles}
-            library={library}
-          />
-        ) : (
-          <aside className="properties simple-help">
-            <h3>Como editar</h3>
-            <p>1. Aperte <b>Reproduzir prévia</b> para assistir.</p>
-            <p>2. Arraste a linha azul para navegar.</p>
-            <p>3. Abra <b>Mais ferramentas</b> apenas quando precisar ajustar cortes, textos, música ou transições.</p>
-            <button className="ghost" onClick={() => setShowAdvanced(true)}>Abrir ferramentas de edição</button>
-          </aside>
-        )}
+        {!isMobile &&
+          (showAdvanced ? (
+            <PropertiesPanel
+              timeline={timeline}
+              selection={selection}
+              onChange={commit}
+              onDelete={deleteSelection}
+              captionStyles={captionStyles}
+              library={library}
+            />
+          ) : (
+            <aside className="properties simple-help">
+              <h3>Como editar</h3>
+              <p>1. Aperte <b>Reproduzir prévia</b> para assistir.</p>
+              <p>2. Arraste a linha azul para navegar.</p>
+              <p>3. Abra <b>Mais ferramentas</b> apenas quando precisar ajustar cortes, textos, música ou transições.</p>
+              <button className="ghost" onClick={() => setShowAdvanced(true)}>Abrir ferramentas de edição</button>
+            </aside>
+          ))}
       </div>
 
-      <div className={`timeline-area ${isMobile && mTab !== "preview" ? "m-hidden" : ""}`}>
+      <div className={`timeline-area ${isMobile && mTab !== "preview" ? "m-short" : ""}`}>
         <TimelineView
           timeline={timeline}
           selection={selection}
@@ -702,18 +701,58 @@ export default function App() {
           onCommit={commit}
           videoRef={videoRef}
           zoom={zoom}
+          onZoom={setZoom}
         />
       </div>
+
+      {isMobile && mTab !== "preview" && (
+        <div className="bottom-sheet">
+          {mTab === "edit" ? (
+            <PropertiesPanel
+              timeline={timeline}
+              selection={selection}
+              onChange={commit}
+              onDelete={deleteSelection}
+              captionStyles={captionStyles}
+              library={library}
+            />
+          ) : (
+            <>
+              <LibraryPanel
+                library={library}
+                onPickMusic={pickMusic}
+                onPickSfx={pickSfx}
+                onPickTransition={pickTransition}
+                transitionType={timeline.transition.type}
+                transitionTypes={transitionTypes}
+                onLibraryChanged={reloadLibrary}
+              />
+              <div className="m-actions">
+                <p className="m-actions-title">Adicionar no ponto atual do vídeo</p>
+                <button onClick={addCutHere}>✂️ Corte aqui</button>
+                <button onClick={addCalloutHere}>📝 Texto explicativo</button>
+                <button onClick={addKeywordHere}>🔥 Palavra em destaque</button>
+                <button onClick={addLayoutHere}>🎬 Cena explicativa</button>
+                {selection && (
+                  <button className="danger" onClick={deleteSelection}>
+                    🗑️ Excluir seleção
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {isMobile && (
         <nav className="mobile-nav">
           <button className={mTab === "preview" ? "on" : ""} onClick={() => setMTab("preview")}>
             ▶ Prévia
           </button>
-          <button className={mTab === "edit" ? "on" : ""} onClick={() => setMTab("edit")}>
+          <button className={mTab === "edit" ? "on" : ""} onClick={() => setMTab(mTab === "edit" ? "preview" : "edit")}>
             ⚙ Ajustes
           </button>
-          <button className={mTab === "tools" ? "on" : ""} onClick={() => setMTab("tools")}>
+          <button className={mTab === "tools" ? "on" : ""} onClick={() => setMTab(mTab === "tools" ? "preview" : "tools")}>
             🎵 Ferramentas
           </button>
         </nav>

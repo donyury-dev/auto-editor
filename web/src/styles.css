@@ -1145,9 +1145,11 @@ button.ghost:hover {
 /* ===================== CELULAR ===================== */
 
 /* Toque: arrastar blocos da timeline e palavras do player
-   não deve rolar a página */
+   não deve rolar a página (a lane permite pan horizontal) */
 .lane,
-.ruler,
+.ruler {
+  touch-action: pan-x;
+}
 .cut-block,
 .mini-block,
 .handle,
@@ -1186,20 +1188,18 @@ button.ghost:hover {
     overflow-y: auto;
   }
 
-  /* --- editor em abas (Prévia / Ajustes / Ferramentas) --- */
+  /* --- editor estilo CapCut: prévia sempre visível + gaveta inferior --- */
   .editor {
-    height: auto;
-    min-height: 100vh;
-    min-height: 100dvh;
-    overflow-y: auto;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   .topbar {
     flex-wrap: wrap;
     gap: 8px;
     padding: 8px 12px;
-    position: sticky;
-    top: 0;
-    z-index: 30;
   }
   .topbar button {
     padding: 8px 12px;
@@ -1220,48 +1220,89 @@ button.ghost:hover {
   .desktop-only {
     display: none !important;
   }
-  .library-wrap {
-    display: contents;
-  }
   .main {
-    flex-direction: column;
+    flex: none;
+    overflow: visible;
   }
-  .main.m-preview .properties,
-  .main.m-preview .library-wrap {
-    display: none;
-  }
-  .main.m-edit .center,
-  .main.m-edit .library-wrap {
-    display: none;
-  }
-  .main.m-tools .center,
-  .main.m-tools .properties {
-    display: none;
-  }
-  .m-hidden {
+  .main > .library-wrap,
+  .main > .properties {
     display: none;
   }
 
-  /* ações rápidas na aba Ferramentas */
-  .main.m-tools .library-wrap {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
+  .player video {
+    max-height: 34vh;
   }
-  .main.m-tools .library {
-    flex: 1;
+  .controls {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .controls .toggle {
+    font-size: 11px;
+  }
+  .zoom-btns {
+    display: flex;
+    gap: 6px;
+  }
+  .zoom-btns button {
+    padding: 8px 12px;
+    min-height: 40px;
+  }
+
+  /* gaveta inferior (Ajustes / Ferramentas) — prévia continua visível */
+  .bottom-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 54px;
+    z-index: 35;
+    max-height: 46dvh;
+    overflow-y: auto;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+    overscroll-behavior: contain;
+  }
+  .bottom-sheet .library {
+    width: 100%;
     border-right: none;
     border-top: none;
-    max-height: none;
   }
+  .bottom-sheet .properties {
+    width: 100%;
+    border-left: none;
+  }
+
+  /* timeline grande, com todas as faixas visíveis */
+  .timeline-area {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  /* quando a gaveta está aberta, timeline encolhe mas não some */
+  .timeline-area.m-short {
+    flex: none;
+    height: 170px;
+  }
+
+  /* rolagem horizontal da timeline com o dedo; pinça dá zoom */
+  .timeline {
+    touch-action: pan-x;
+  }
+  .cut-block,
+  .mini-block,
+  .handle,
+  .sfx-marker {
+    touch-action: none;
+  }
+
+  /* ações rápidas na gaveta de ferramentas */
   .m-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
     padding: 12px;
     border-top: 1px solid var(--line);
-    background: var(--panel);
   }
   .m-actions-title {
     grid-column: 1 / -1;
@@ -1280,7 +1321,9 @@ button.ghost:hover {
 
   /* barra de abas inferior */
   .mobile-nav {
-    position: sticky;
+    position: fixed;
+    left: 0;
+    right: 0;
     bottom: 0;
     z-index: 40;
     display: flex;
@@ -1304,25 +1347,16 @@ button.ghost:hover {
     box-shadow: inset 0 2px 0 var(--accent);
   }
 
-  .properties {
-    width: 100%;
-    border-left: none;
-    border-top: 1px solid var(--line);
-  }
-
-  .player video {
-    max-height: 48vh;
-  }
-  .controls {
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .controls .zoom input {
-    width: 90px;
-  }
-
-  .timeline-area {
-    height: 200px;
+  /* botão de importar música */
+  .lib-import {
+    margin: 8px 10px 4px;
+    padding: 12px;
+    border: 1.5px dashed var(--accent);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 13px;
   }
 
   /* alvos de toque maiores */
