@@ -21,6 +21,7 @@ COPY images/ ./images/
 COPY assets/ ./assets/
 COPY config/ ./config/
 COPY server/ ./server/
+COPY social/ ./social/
 COPY scripts/ ./scripts/
 COPY --from=web /src/web/dist ./web/dist
 ENV PORT=8000
