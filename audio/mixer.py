@@ -53,8 +53,12 @@ def build_audio_filter(
         trim = f",atrim=duration={duration:.3f}" if duration else ""
         parts.append(f"anullsrc=r=48000:cl=stereo{trim}[voice]")
     elif plan.normalize_voice:
+        # Limpeza antes de normalizar: highpass tira o grave de vento/
+        # manuseio do celular e afftdn reduz chiado de fundo (leve, sem
+        # prejudicar a voz); loudnorm equilibra o volume final.
         parts.append(
-            f"[0:a]loudnorm=I={VOICE_TARGET_LUFS}:TP={VOICE_TRUE_PEAK}"
+            f"[0:a]highpass=f=70,afftdn=nr=10:nf=-25,"
+            f"loudnorm=I={VOICE_TARGET_LUFS}:TP={VOICE_TRUE_PEAK}"
             f":LRA=11,aresample=48000,"
             f"aformat=sample_rates=48000:channel_layouts=stereo[voice]"
         )
