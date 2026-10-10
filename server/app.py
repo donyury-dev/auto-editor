@@ -986,7 +986,7 @@ def instagram_oauth_start() -> dict:
             }
         )
         return {
-            "url": f"https://api.instagram.com/oauth/authorize?{query}",
+            "url": f"https://www.instagram.com/oauth/authorize?{query}",
             "redirect_uri": redirect_uri,
             "flow": "instagram",
         }
