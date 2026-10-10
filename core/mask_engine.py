@@ -17,9 +17,14 @@ import logging
 import urllib.request
 from pathlib import Path
 
-from config.settings import PROJECT_ROOT
+from config.settings import PROJECT_ROOT, _detect_ram_gb
 
 logger = logging.getLogger(__name__)
+
+# Abaixo desta RAM o render + segmentação juntos estouram a memória
+# (ex.: plano Starter do Render, 512 MB) — o recurso é desligado e o
+# render completa com o texto na frente.
+MIN_RAM_GB = 1.5
 
 MODEL_URL = (
     "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
@@ -72,8 +77,13 @@ class PersonMasker:
     def __init__(self, model_file: Path) -> None:
         import onnxruntime as ort
 
+        opts = ort.SessionOptions()
+        # RAM apertada: 1 thread reduz bem o consumo de memória/CPU.
+        if 0 < _detect_ram_gb() < 3.0:
+            opts.intra_op_num_threads = 1
+            opts.inter_op_num_threads = 1
         self.session = ort.InferenceSession(
-            str(model_file), providers=["CPUExecutionProvider"]
+            str(model_file), sess_options=opts, providers=["CPUExecutionProvider"]
         )
         self.input_name = self.session.get_inputs()[0].name
 
@@ -117,6 +127,14 @@ def person_overlay_segments(
     # Limita o custo em CPU: no máximo 4 trechos, cada um com até 12s.
     segs = sorted(segs, key=lambda s: s[1] - s[0], reverse=True)[:4]
     segs = sorted(segs)
+    ram_gb = _detect_ram_gb()
+    if 0 < ram_gb < MIN_RAM_GB:
+        logger.warning(
+            "RAM %.1f GB < %.1f GB: pulando separação de pessoa do fundo "
+            "(texto na frente) para não estourar a memória no render.",
+            ram_gb, MIN_RAM_GB,
+        )
+        return None
     try:
         model_file = ensure_model()
         masker = PersonMasker(model_file)
