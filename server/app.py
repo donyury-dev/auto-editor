@@ -108,10 +108,14 @@ def _validate_editor_token(access_token: str) -> bool:
         if not user_id:
             return False
         profiles = _supabase_get(
-            f"/rest/v1/profiles?select=tenant_id&user_id=eq.{user_id}&limit=1",
+            f"/rest/v1/profiles?select=tenant_id,role&user_id=eq.{user_id}&limit=1",
             access_token,
         )
         tenant_id = profiles[0].get("tenant_id") if profiles else None
+        role = profiles[0].get("role") if profiles else None
+        # Superadmin (dono da plataforma) usa o editor sem estabelecimento.
+        if role == "superadmin":
+            return True
         if not tenant_id:
             return False
         accesses = _supabase_get(
@@ -147,6 +151,11 @@ def _validate_editor_token_debug(access_token: str) -> dict[str, Any]:
         )
         result["steps"].append({"step": "profiles", "profiles": profiles})
         tenant_id = profiles[0].get("tenant_id") if profiles else None
+        role = profiles[0].get("role") if profiles else None
+        if role == "superadmin":
+            result["allowed"] = True
+            result["reason"] = "superadmin: acesso liberado sem estabelecimento"
+            return result
         if not tenant_id:
             result["allowed"] = False
             result["reason"] = "usuário sem tenant vinculado"
